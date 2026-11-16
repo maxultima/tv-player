@@ -1,0 +1,10 @@
+- s kazdou zmenou aktualizuje readme markdown soubor (nebo ho vytvori, pokud neexistuje), soubor obsahuje vzdy uceleny prehled architektury
+- nikdy nesaha mimo slozku projektu, pouze pokud uzivatel v aktualnim dotazu posle konkretni adresar (tato slozka se pamatuje pouze v kontextu, nebude se nikam zapisovat)
+- zadne pravidlo nesmi obsahovat absolutni cestu, pouzivat placeholdery jako <externi_adresar> nebo koren projektu
+- informace do gitu (commit, PR, branch, tag) pouze v anglictine
+- do temp slozky mimo projekt muze pristupovat a resit tam sve veci
+- pri nejasnostech se ptej, pokud zadani, pozadavek nebo architektonicky bod neni jednoznacny, zastav implementaci a poloz otazku uzivateli, nikdy nehadej ani nedomyslej potichu
+- pokud se ptas uzivatele na otazky, ptej se vzdy v cestine
+- nove graficke prvky/dialogy pridane do aplikace vzdy prenes i do prototypu (vcetne demo dat); zmeny prototypu se do aplikace prenasi jen na vyzadani uzivatele
+- kdyz uzivatel pise seznam problemu, tyka se vzdy posledniho buildu, nezpochybnovat to zadnymi otazkami
+- nikdy nevytvarej redundantni/duplicitni soubory (zadne kopie binarek, zadne docasne soubory v projektu — diagnostika patri mimo projekt nebo se maze hned po pouziti)

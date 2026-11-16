@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TV klient – prototyp v2</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --bg:#0b0e14; --panel:#141926; --panel2:#1b2233; --line:#2a3350;
+    --text:#e8ecf4; --dim:#8b94a9; --acc:#e11d48; --acc2:#2563eb; --ok:#22c55e;
+  }
+  html,body { height:100%; overflow:hidden; background:#000; color:var(--text);
+    font-family:"Segoe UI",system-ui,Arial,sans-serif; user-select:none; }
+  /* ---------- main stage ---------- */
+  #stage { position:fixed; inset:0; cursor:pointer; overflow:hidden; background:#000; }
+  #stage.empty #stageCenter { display:none; }
+  #stage .scan { position:absolute; inset:0; pointer-events:none; opacity:.5;
+    background:repeating-linear-gradient(0deg, transparent 0 3px, rgba(0,0,0,.18) 3px 4px); }
+  #stageCenter { position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:14px; pointer-events:none; }
+  #bigIcon { width:120px; height:120px; border-radius:28px; display:flex; align-items:center;
+    justify-content:center; font-size:44px; font-weight:800; letter-spacing:1px;
+    box-shadow:0 12px 40px rgba(0,0,0,.5); }
+  #stageStation { font-size:30px; font-weight:700; }
+  #stageProgram { font-size:17px; color:var(--dim); }
+  #stageProgWrap { width:min(420px,60vw); height:8px; background:#00000088; border-radius:99px; overflow:hidden; }
+  #stageProg { height:100%; width:0%; background:linear-gradient(90deg,var(--acc),#fb7185); border-radius:99px; transition:width .6s; }
+  #pauseVeil { position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+    background:rgba(0,0,0,.45); pointer-events:none; }
+  #stage.paused #pauseVeil { display:flex; }
+  #pauseVeil .glyph { width:110px; height:110px; border-radius:50%; background:#000000aa;
+    border:2px solid #ffffff55; display:flex; align-items:center; justify-content:center;
+    font-size:0; }
+  #pauseVeil .glyph::before { content:""; border-left:34px solid #fff; border-top:22px solid transparent;
+    border-bottom:22px solid transparent; margin-left:10px; }
+  body.fakefs #stage { z-index:60; }
+  /* ---------- edge zones + handles ---------- */
+  /* ---------- right panel ---------- */
+  #panelR { position:fixed; top:0; right:0; bottom:0; width:350px; z-index:50;
+    background:var(--panel); border-left:1px solid var(--line);
+    transform:translateX(102%); transition:transform .25s ease; display:flex; flex-direction:column; }
+  body.rightOpen #panelR { transform:none; }
+  .secLabel { font-size:11px; text-transform:uppercase; letter-spacing:1.5px; color:var(--dim); padding:10px 14px 6px; }
+  #sources { display:flex; flex-direction:row; gap:8px; padding:12px 14px 4px; }
+  .srcCard { flex:1 1 0; min-width:0; }
+  .resizer { position:absolute; top:0; bottom:0; width:8px; z-index:60; cursor:ew-resize; touch-action:none; }
+  #resR { left:0; } #resL { right:0; }
+  .resizer:hover, .resizer.drag { background:#e11d4888; }
+  #winBtns { display:flex; gap:6px; justify-content:space-between; padding:10px 14px 0; align-items:center; }
+  #winBtns .grp { display:flex; gap:6px; }
+  .wbtn { width:34px; height:26px; border:1px solid var(--line); background:var(--panel2); color:var(--dim);
+    border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:12px; cursor:pointer; user-select:none; }
+  .wbtn:hover { color:var(--text); border-color:var(--acc); }
+  .wbtn.danger:hover { background:var(--acc); border-color:var(--acc); color:#fff; }
+  .wbtn.help { width:26px; border-radius:50%; font-weight:800; }
+  #actLogWrap { padding:0 14px; }
+  #actLog { max-height:110px; overflow-y:auto; background:#00000066; border:1px solid var(--line);
+    border-radius:10px; padding:6px 8px; font-family:Consolas,monospace; font-size:10px; line-height:1.6;
+    color:var(--dim); scrollbar-width:thin; scrollbar-color:#3b4763 transparent; }
+  #actLog:empty { display:none; }
+  #actLog .lt { color:#5b657d; margin-right:4px; }
+  #helpPop { position:fixed; z-index:90; width:300px; display:none; background:var(--panel2);
+    border:1px solid var(--line); border-radius:14px; padding:10px 12px; font-size:12px;
+    color:var(--text); box-shadow:0 14px 44px rgba(0,0,0,.6); pointer-events:none; }
+  #helpPop.on { display:block; }
+  #helpPop h4 { font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--dim); margin:8px 0 2px; }
+  #helpPop h4:first-child { margin-top:0; }
+  #helpPop .hrow { display:flex; gap:8px; align-items:baseline; padding:2px 0; }
+  #helpPop .hkeys { flex:none; }
+  #helpPop kbd { background:#0b0e14; border:1px solid var(--line); border-radius:6px; padding:1px 7px;
+    font-family:inherit; font-size:11px; white-space:nowrap; }
+  .srcCard { border:1px solid var(--line); background:var(--panel2); border-radius:12px;
+    padding:10px; display:flex; flex-direction:column; gap:10px; cursor:pointer; }
+  .srcCard.active { border-color:var(--acc); box-shadow:0 0 0 1px var(--acc) inset; }
+  .srcTop { display:flex; flex-direction:column; gap:8px; align-items:stretch; }
+  .srcLogo { width:100%; height:64px; border-radius:10px; display:flex;
+    align-items:center; justify-content:center; overflow:hidden; padding:3px 6px; }
+  .srcLogo.red, .srcLogo.dark { background:transparent; border:none; }
+  .srcLogo img { max-width:100%; max-height:100%; object-fit:contain; display:block; }
+  .srcMeta { flex:1; min-width:0; }
+  .srcName { font-size:13px; font-weight:700; }
+  .srcStatus { font-size:11px; color:var(--dim); }
+  .srcStatus.ok { color:#86efac; }
+  .srcBtns { display:flex; gap:6px; }
+  .btn { flex:1; border:1px solid var(--line); background:#0b0e14; color:var(--text);
+    border-radius:10px; padding:8px 6px; font-size:12px; font-weight:600; cursor:pointer; }
+  .btn:hover:not(:disabled) { border-color:var(--acc); }
+  .btn.primary { background:var(--acc); border-color:var(--acc); color:#fff; }
+  .btn:disabled { opacity:.35; cursor:default; }
+  .emptyNote { padding:14px; font-size:13px; color:var(--dim); line-height:1.6; }
+  .emptyNote b { color:var(--text); }
+  #loginModal { position:fixed; inset:0; z-index:100; display:none; align-items:center; justify-content:center;
+    background:rgba(0,0,0,.6); }
+  #loginModal.on { display:flex; }
+  #loginCard { width:min(440px,92vw); background:var(--panel); border:1px solid var(--line);
+    border-radius:16px; padding:18px; display:flex; flex-direction:column; gap:10px; }
+  #loginCard h2 { font-size:17px; }
+  #loginCard p { font-size:13px; color:var(--dim); line-height:1.6; }
+  #loginCard input { width:100%; background:#0b0e14; color:var(--text); border:1px solid var(--line);
+    border-radius:10px; padding:9px 10px; font-size:13px; font-family:inherit; }
+  #loginCard .lrow { display:flex; gap:8px; }
+  #loginCard .alert { display:none; align-items:flex-start; gap:10px; font-size:13px; line-height:1.5;
+    color:#fecaca; background:#7f1d1d55; border:1px solid #ef444488; border-radius:12px; padding:10px 12px;
+    margin-top:12px; }
+  #loginCard .alert.on { display:flex; }
+  #loginCard .alert .ico { flex:none; width:22px; height:22px; border-radius:50%; background:#ef4444;
+    color:#fff; font-weight:800; display:flex; align-items:center; justify-content:center; font-size:14px; }
+  #loginCard.shake { animation:cardshake .35s; }
+  @keyframes cardshake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-7px)} 50%{transform:translateX(6px)} 75%{transform:translateX(-4px)} }
+  .profiles { display:flex; gap:10px; }
+  .prof { flex:1; border:2px solid transparent; background:#0b0e14; border-radius:12px; padding:10px 4px;
+    display:flex; flex-direction:column; gap:6px; align-items:center; cursor:pointer; }
+  .prof:hover { border-color:var(--acc); }
+  .ava { width:44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-weight:800; font-size:16px; color:#fff; }
+  .pname { font-size:12px; }
+  #noise { position:absolute; inset:0; width:100%; height:100%; }
+  /* hum bar: svetly pas putujici zdola nahoru jako pri ladeni CRT */
+  #humbar { position:absolute; left:0; right:0; height:110px; z-index:1; pointer-events:none;
+    background:linear-gradient(to bottom, transparent, rgba(255,255,255,.13) 45%, rgba(255,255,255,.2) 50%, rgba(255,255,255,.13) 55%, transparent);
+    animation:humroll 9s linear infinite; }
+  @keyframes humroll { from { transform:translateY(105vh); } to { transform:translateY(-160px); } }
+  .src { flex:1; border:1px solid var(--line); background:var(--panel2); border-radius:12px;
+    padding:10px 6px; text-align:center; cursor:pointer; font-size:13px; font-weight:600; }
+  .src .dot { width:34px; height:34px; border-radius:10px; margin:0 auto 6px; display:flex;
+    align-items:center; justify-content:center; font-weight:800; font-size:15px; color:#fff; }
+  .src.active { border-color:var(--acc); box-shadow:0 0 0 1px var(--acc) inset; }
+  hr.sep { border:none; border-top:1px solid var(--line); margin:8px 0; }
+  #favs { display:flex; flex-wrap:wrap; gap:8px; padding:8px 14px; }
+  .fav { width:62px; height:38px; border-radius:8px; display:flex; align-items:center; justify-content:center;
+    font-weight:800; font-size:15px; color:#fff; cursor:grab; border:2px solid transparent; touch-action:none; }
+  .fav img { max-width:86%; max-height:80%; width:auto; height:auto; object-fit:contain; border-radius:4px; display:block; }
+  .fav.ghost { position:fixed; left:0; top:0; z-index:200; margin:0; pointer-events:none;
+    opacity:.6; cursor:grabbing; box-shadow:0 12px 32px rgba(0,0,0,.6); }
+  .fav-hole { width:62px; height:38px; border-radius:8px; flex:none;
+    border:2px dashed #4b5568; background:rgba(255,255,255,.06); }
+  #stationFilterWrap { padding:6px 14px; position:relative; }
+  #stationFilterProto { width:100%; background:#0b0e14; color:var(--text); border:1px solid var(--line);
+    border-radius:10px; padding:8px 30px 8px 10px; font-size:13px; font-family:inherit; }
+  #stationFilterClear { position:absolute; right:20px; top:50%; transform:translateY(-50%);
+    width:22px; height:22px; border:none; border-radius:50%; background:transparent; color:var(--dim);
+    font-size:15px; line-height:1; cursor:pointer; display:none; padding:0; }
+  #stationFilterClear:hover { background:#e11d48; color:#fff; }
+  #stationFilterClear.on { display:block; }
+  #epgFilterWrap { padding:6px 14px; position:relative; }
+  #epgFilterDemo { width:100%; background:#0b0e14; color:var(--text); border:1px solid var(--line);
+    border-radius:10px; padding:8px 30px 8px 10px; font-size:13px; font-family:inherit; }
+  #epgFilterDemoClear { position:absolute; right:20px; top:50%; transform:translateY(-50%);
+    width:22px; height:22px; border:none; border-radius:50%; background:transparent; color:var(--dim);
+    font-size:15px; line-height:1; cursor:pointer; display:none; padding:0; }
+  #epgFilterDemoClear:hover { background:#e11d48; color:#fff; }
+  #epgFilterDemoClear.on { display:block; }
+  #stationList { flex:1; overflow-y:auto; padding:2px 8px 12px; scrollbar-width:thin; scrollbar-color:#3b4763 transparent; }
+  #stationList::-webkit-scrollbar, #epg::-webkit-scrollbar, #favs::-webkit-scrollbar { width:8px; height:8px; }
+  #stationList::-webkit-scrollbar-track, #epg::-webkit-scrollbar-track, #favs::-webkit-scrollbar-track { background:transparent; }
+  #stationList::-webkit-scrollbar-thumb, #epg::-webkit-scrollbar-thumb, #favs::-webkit-scrollbar-thumb { background:#3b4763; border-radius:99px; border:2px solid #141926; }
+  #stationList::-webkit-scrollbar-thumb:hover, #epg::-webkit-scrollbar-thumb:hover { background:#e11d48; }
+  #favs { scrollbar-width:thin; scrollbar-color:#3b4763 transparent; }
+  .stRow { display:flex; gap:10px; align-items:center; padding:8px; border-radius:12px; cursor:pointer;
+    border:1px solid transparent; }
+  .stRow:hover { background:var(--panel2); }
+  .stRow.sel { background:var(--panel2); border-color:var(--acc); box-shadow:0 0 0 1px var(--acc) inset; }
+  .fav.sel { border-color:var(--acc); box-shadow:0 0 0 1px var(--acc) inset; }
+  .stIco { width:44px; height:44px; border-radius:11px; flex:none; display:flex; align-items:center;
+    justify-content:center; font-weight:800; font-size:14px; color:#fff; }
+  .stMid { flex:1; min-width:0; }
+  .stName { font-size:14px; font-weight:600; display:flex; align-items:center; gap:6px; }
+  .lock { font-size:13px; }
+  .star { color:#555; font-size:15px; cursor:pointer; }
+  .star.on { color:#fbbf24; }
+  .stNow { font-size:12px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bar { height:5px; background:#00000077; border-radius:99px; margin-top:5px; overflow:hidden; }
+  .progRow { display:flex; align-items:center; gap:6px; margin-top:4px; }
+  .progRow .bar { flex:1; margin-top:0; }
+  .progRow span { font-size:11px; color:var(--dim); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  #epgPop { position:fixed; z-index:90; width:270px; background:var(--panel2); border:1px solid var(--line);
+    border-radius:14px; padding:10px 12px; display:none; box-shadow:0 14px 44px rgba(0,0,0,.6); pointer-events:none; }
+  #epgPop.on { display:block; }
+  #epgPop h4 { font-size:13px; margin-bottom:6px; }
+  #epgPop .ep { padding:6px 8px; }
+  #epgPop .ep .t { width:38px; }
+  .bar > div { height:100%; background:linear-gradient(90deg,var(--acc2),#60a5fa); border-radius:99px; }
+  /* ---------- left panel ---------- */
+  #panelL { position:fixed; top:0; left:0; bottom:0; width:310px; z-index:50;
+    background:var(--panel); border-right:1px solid var(--line);
+    transform:translateX(-102%); transition:transform .25s ease; display:flex; flex-direction:column; }
+  body.leftOpen #panelL { transform:none; }
+  #epgHead { padding:14px 14px 4px; font-size:16px; font-weight:700; }
+  #epgSub { padding:0 14px 8px; font-size:12px; color:var(--dim); }
+  #epg { flex:1; overflow-y:auto; padding:0 8px 12px; }
+  /* Nazev poradu nikdy pod cas: cas je pevny sloupec, nazev ma vlastni sloupec (muze se lammat jen v nem).
+     Aktualni porad muze zalomit progress bar na vlastni radek (je primy potomek .ep). */
+  .ep { display:flex; flex-wrap:nowrap; gap:2px 10px; padding:6px 8px; border-radius:10px; cursor:pointer; align-items:baseline; }
+  .ep.now { flex-wrap:wrap; }
+  .epProg { flex-basis:100%; height:4px; background:#00000077; border-radius:99px; overflow:hidden; }
+  .epProg > div { height:100%; background:linear-gradient(90deg,var(--acc),#fb7185); border-radius:99px; }
+  .ep:hover { background:var(--panel2); }
+  .ep.now { background:#1e2b1e; }
+  .ep .t { font-size:12px; color:var(--dim); width:42px; flex:none; font-variant-numeric:tabular-nums; }
+  .ep .ti { font-size:13px; flex:1; min-width:0; }
+  .ep.now .ti { font-weight:700; color:#86efac; }
+  .live { font-size:10px; background:var(--acc); border-radius:5px; padding:1px 6px; margin-left:6px; color:#fff; }
+</style>
+</head>
+<body>
+  <!-- MAIN STAGE -->
+  <div id="stage" title="klik = pauza, dvojklik = fullscreen">
+    <canvas id="noise"></canvas>
+    <div id="humbar"></div>
+    <div id="stageCenter">
+      <div id="bigIcon">–</div>
+      <div id="stageStation">–</div>
+      <div id="stageProgram">–</div>
+      <div id="stageProgWrap"><div id="stageProg"></div></div>
+    </div>
+    <div class="scan"></div>
+    <div id="pauseVeil"><div class="glyph"></div></div>
+  </div>
+
+  <!-- RIGHT: sources / favs / stations -->
+  <aside id="panelR">
+    <div class="resizer" id="resR" title="roztáhni myšítkem"></div>
+    <div id="winBtns"><span class="wbtn help" id="btnHelp" title="Nápověda k ovládání">?</span><span class="grp"><span class="wbtn" id="wMin" title="Minimalizovat">—</span><span class="wbtn" id="wMax" title="Maximalizovat">▢</span><span class="wbtn danger" id="wClose" title="Zavřít">✕</span></span></div>
+    <div id="helpPop">
+      <h4>Hlavní plocha</h4>
+      <div class="hrow"><span class="hkeys"><kbd>Klik</kbd></span><span>pauza</span></div>
+      <div class="hrow"><span class="hkeys"><kbd>2×klik</kbd></span><span>fullscreen</span></div>
+      <div class="hrow"><span class="hkeys"><kbd>tah</kbd></span><span>přesun okna</span></div>
+      <div class="hrow"><span class="hkeys"><kbd>Mezerník</kbd></span><span>pauza</span></div>
+      <div class="hrow"><span class="hkeys"><kbd>F</kbd></span><span>fullscreen</span></div>
+      <div class="hrow"><span class="hkeys"><kbd>↑</kbd> <kbd>↓</kbd></span><span>stanice</span></div>
+      <div class="hrow"><span class="hkeys"><kbd>Esc</kbd></span><span>zavřít</span></div>
+      <h4>Levé menu</h4>
+      <div class="hrow"><span class="hkeys"><kbd>okraj</kbd></span><span>otevřít</span></div>
+      <div class="hrow"><span class="hkeys"><kbd>klik</kbd></span><span>označit pořad</span></div>
+      <div class="hrow"><span class="hkeys"><kbd>filtr</kbd></span><span>hledat + křížek</span></div>
+      <h4>Pravé menu</h4>
+      <div class="hrow"><span class="hkeys"><kbd>okraj</kbd></span><span>otevřít</span></div>
+      <div class="hrow"><span class="hkeys"><kbd>klik</kbd></span><span>přehrát stanici</span></div>
+      <div class="hrow"><span class="hkeys">★</span><span>oblíbená</span></div>
+      <div class="hrow"><span class="hkeys"><kbd>tah</kbd></span><span>přeskládání oblíbených</span></div>
+      <div class="hrow"><span class="hkeys"><kbd>podržení</kbd></span><span>program stanice</span></div>
+      <div class="hrow"><span class="hkeys"><kbd>filtr</kbd></span><span>hledat + křížek</span></div>
+      <div class="hrow"><span class="hkeys">— ▢ ✕</span><span>okno</span></div>
+    </div>
+    <div id="sources"></div>
+    <div id="actLogWrap"><div id="actLog"></div></div>
+    <div id="loginModal">
+      <div id="loginCard">
+        <div id="loginStepCreds">
+          <h2 id="loginTitle">Přihlášení (demo)</h2>
+          <p>Zadej jméno a heslo. Po ověření se u Oneplay ukáže výběr profilu.</p>
+          <div class="alert" id="loginErr"><span class="ico">!</span><span id="loginErrText"></span></div>
+          <div style="display:flex;flex-direction:column;gap:8px;margin:10px 0">
+            <input id="loginUser" placeholder="E-mail / login" autocomplete="username">
+            <input id="loginPass" type="password" placeholder="Heslo" autocomplete="current-password">
+          </div>
+          <div class="lrow">
+            <button class="btn primary" id="btnDoLogin">Přihlásit</button>
+            <button class="btn" id="btnCloseLogin">Zrušit</button>
+          </div>
+        </div>
+        <div id="loginStepProfiles" style="display:none">
+          <h2>Kdo sleduje? (demo)</h2>
+          <p>Jeden login, víc uživatelů — vyber profil, který bude streamovat.</p>
+          <div class="profiles" id="profileList" style="margin:10px 0"></div>
+          <div class="lrow">
+            <button class="btn" id="btnBackToCreds">Zpět</button>
+            <button class="btn" id="btnCloseLogin2">Zrušit</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <hr class="sep" id="hrFavsProto">
+    <div id="favs"></div>
+    <hr class="sep" id="hrStationsProto">
+    <div id="stationFilterWrap"><input id="stationFilterProto" placeholder="Hledat stanici…" autocomplete="off"><button id="stationFilterClear" title="Smazat text">×</button></div>
+    <div id="stationList"></div>
+  </aside>
+  <div id="epgPop"><h4 id="epgPopHead"></h4><div id="epgPopList"></div></div>
+
+  <!-- LEFT: EPG -->
+  <aside id="panelL">
+    <div class="resizer" id="resL" title="roztáhni myšítkem"></div>
+    <div id="epgHead">Program</div>
+    <div id="epgFilterWrap"><input id="epgFilterDemo" placeholder="Hledat pořad…" autocomplete="off"><button id="epgFilterDemoClear" title="Smazat text">×</button></div>
+    <div id="epg"></div>
+  </aside>
+
+
+<script>
+const SOURCES = [
+  { id:'sltv', name:'SledováníTV', short:'STV', color:'#e11d48', logo:'src/assets/sltv-icon.jpg', chip:'red', loginUrl:'https://sledovat.tv/welcome/login' },
+  { id:'oneplay', name:'Oneplay', short:'OP', color:'#2563eb', logo:'src/assets/oneplay-icon.jpg', chip:'dark', loginUrl:'https://www.oneplay.cz/prihlaseni' }
+];
+const ST = (name,ini,color,now,pct,epg)=>({name,ini,color,now,pct,epg});
+const DATA = {
+  sltv: [
+    ST('ČT1','ČT1','#c8102e','Události',64,[['17:00','AZ-kvíz'],['18:00','Události za okamžik',0],['19:00','Události',1,64],['20:00','Všechnopárty'],['21:30','Detektivka Morton']]),
+    ST('ČT2','ČT2','#7c3aed','Dokument: Planeta',30,[['17:30','Cestománie'],['18:30','Dokument: Planeta',1,30],['20:00','Film: Návrat'],['22:00','Krajinou vína']]),
+    ST('Nova','NOV','#d4a017','Televizní noviny',70,[['17:30','Odpolední zprávy'],['19:30','Televizní noviny',1,70],['20:20','Ulice'],['21:40','Výměna manželek']]),
+    ST('Prima','PRI','#0ea5e9','Prostřeno!',45,[['17:00','Receptář'],['18:00','Prostřeno!',1,45],['19:55','Zprávy'],['20:15','Ano, šéfe']]),
+    ST('ČT sport','SPO','#16a34a','Fotbal: liga',55,[['17:00','Sportovní zprávy'],['18:00','Fotbal: liga',1,55],['20:00','Hokej: sestřihy'],['21:00','Rozhovor']]),
+    ST('Óčko','ÓČK','#f97316','Top 10 klipů',20,[['16:00','Mix dne'],['18:00','Top 10 klipů',1,20],['20:00','Koncert'],['22:00','Noční mix']])
+  ],
+  oneplay: [
+    ST('Oneplay 1','OP1','#2563eb','Film: Stanice',40,[['17:00','Seriál: Ulice času'],['19:00','Film: Stanice',1,40],['21:00','Show: Na hraně']]),
+    ST('Nova Sport 1','NS1','#059669','Hokej: extraliga',75,[['17:00','Preview kola'],['18:30','Hokej: extraliga',1,75],['21:00','Dohráno']]),
+    ST('Nova Sport 2','NS2','#0d9488','Tenis: finále',50,[['16:00','Magazín'],['18:00','Tenis: finále',1,50],['20:30','Basket']]),
+    ST('Nova Cinema','NCI','#a855f7','Komedie: Dovolená',35,[['16:30','Animák: Výlet'],['18:30','Komedie: Dovolená',1,35],['20:30','Akční: Útěk']]),
+    ST('Nova Action','NAC','#dc2626','Krimiseriál: Stopa',60,[['17:00','Akční odpoledne'],['19:00','Krimiseriál: Stopa',1,60],['21:00','Horor: Noc']])
+  ]
+};
+DATA.sltv.find(s=>s.name==='Óčko').locked='pin'; /* demo zamčené stanice */
+let curSrc = 'sltv';
+let selIdx = 0;
+let favs = ['ČT1','Nova','ČT sport'];
+let paused = false;
+let logged = { sltv:false, oneplay:false };
+const ch = () => logged[curSrc] ? DATA[curSrc] : [];
+
+const $ = s=>document.querySelector(s);
+const stage=$('#stage');
+function log(msg){
+  console.debug('[proto]',msg);
+  try{
+    const el=document.getElementById('actLog'); if(!el) return;
+    const t=new Date(), p=n=>String(n).padStart(2,'0');
+    const d=document.createElement('div');
+    d.innerHTML='<span class="lt">'+p(t.getHours())+':'+p(t.getMinutes())+':'+p(t.getSeconds())+'</span>'+String(msg).slice(0,160);
+    el.appendChild(d); while(el.children.length>8) el.firstChild.remove();
+    el.scrollTop=el.scrollHeight;
+  }catch{}
+}
+function stationByName(n){ return ch().find(s=>s.name===n); }
+/* CRT šum místo černé obrazovky, dokud nic nehraje / bez přihlášení */
+const noiseC = document.getElementById('noise'), nctx = noiseC.getContext('2d');
+function sizeNoise(){ noiseC.width=480; noiseC.height=270; }
+function drawNoise(){
+  const w=noiseC.width,h=noiseC.height,img=nctx.createImageData(w,h),d=img.data;
+  for(let i=0;i<d.length;i+=4){ const v=(Math.random()*255)|0; d[i]=v; d[i+1]=v; d[i+2]=v; d[i+3]=255; }
+  nctx.putImageData(img,0,0);
+}
+setInterval(()=>{ if(!document.hidden) drawNoise(); },90);
+sizeNoise();
+function srcOf(){ return SOURCES.find(s=>s.id===curSrc); }
+
+/* ---- main stage ---- */
+function renderStage(){
+  const list = ch();
+  const st = list[Math.min(selIdx,list.length-1)];
+  if(!st){
+    stage.classList.add('empty');
+    $('#epgHead').textContent='Program';
+    $('#epgSub').textContent='Po přihlášení se tu objeví program stanice.';
+    $('#epg').innerHTML='<div class="emptyNote">Zatím tu nic není. <b>Přihlas se ke zdroji</b> v pravém menu.</div>';
+    return;
+  }
+  stage.classList.remove('empty');
+  const bi=$('#bigIcon'); bi.textContent=st.ini; bi.style.background=st.color;
+  $('#stageStation').textContent=st.name;
+  $('#stageProgram').textContent='Právě běží: '+st.now;
+  $('#stageProg').style.width=st.pct+'%';
+  $('#epgHead').textContent='Program – '+st.name;
+  $('#epgSub').textContent=srcOf().name+' · klik na pořad = označit jako právě běžící (ladicí)';
+  renderEpg(st);
+}
+let epgFilterDemo='';
+function syncEpgFilterDemoClear(){ document.getElementById('epgFilterDemoClear').classList.toggle('on', !!document.getElementById('epgFilterDemo').value); }
+function renderEpg(st){
+  if(renderEpg._for!==st.name){ epgFilterDemo=''; const fi=document.getElementById('epgFilterDemo'); if(fi) fi.value=''; syncEpgFilterDemoClear(); }
+  renderEpg._for=st.name;
+  const e=$('#epg'); e.innerHTML='';
+  const q=normName(epgFilterDemo);
+  let shown=0;
+  st.epg.filter(p=>!q||normName(p[1]).includes(q)).forEach(p=>{
+    shown++;
+    const d=document.createElement('div'); d.className='ep'+(p[2]?' now':'');
+    d.innerHTML='<span class="t">'+p[0]+'</span><span class="ti">'+p[1]+(p[2]?'<span class="live">LIVE</span>':'')+'</span>'
+      +(p[2]?'<div class="epProg"><div style="width:'+(p[3]||10)+'%'+'"></div></div>':'');
+    d.onclick=ev=>{ev.stopPropagation(); st.now=p[1]; st.pct=p[3]||10; renderStage(); renderStations(); log('EPG: „'+p[1]+'“ → právě běží na '+st.name);};
+    e.appendChild(d);
+  });
+  if (!shown) e.innerHTML='<div class="emptyNote">Nic neodpovídá filtru.</div>';
+}
+document.addEventListener('input',e=>{
+  if(e.target&&e.target.id==='epgFilterDemo'){ epgFilterDemo=e.target.value; syncEpgFilterDemoClear(); renderEpg(DATA[curSrc][selIdx]); }
+});
+document.getElementById('epgFilterDemoClear').onclick=()=>{
+  const fi=document.getElementById('epgFilterDemo'); fi.value=''; epgFilterDemo='';
+  syncEpgFilterDemoClear(); renderEpg(DATA[curSrc][selIdx]); fi.focus();
+};
+/* klik vs dvojklik */
+let clickTimer=null;
+stage.addEventListener('click',()=>{
+  if(clickTimer){ clearTimeout(clickTimer); clickTimer=null; toggleFS(); }
+  else clickTimer=setTimeout(()=>{ clickTimer=null; togglePause(); },260);
+});
+function togglePause(){
+  paused=!paused; stage.classList.toggle('paused',paused);
+  log(paused?'⏸ pauza':'▶ přehrávání');
+}
+async function toggleFS(){
+  try{
+    if(document.fullscreenElement) { await document.exitFullscreen(); log('⛶ fullscreen → okno'); }
+    else { await document.documentElement.requestFullscreen(); log('⛶ fullscreen'); }
+  }catch(e){ document.body.classList.toggle('fakefs'); log('⛶ fullscreen (simulace, iframe/file)'); }
+}
+
+/* ---- right panel ---- */
+function renderSources(){
+  const w=$('#sources'); w.innerHTML='';
+  SOURCES.forEach(s=>{
+    const isLogged = logged[s.id], n = isLogged ? DATA[s.id].length : 0;
+    const card=document.createElement('div'); card.className='srcCard'+(s.id===curSrc?' active':'');
+    card.innerHTML='<div class="srcTop"><div class="srcLogo '+s.chip+'" title="'+s.name+(isLogged?' · demo přihlášeno':'')+'"><img src="'+s.logo+'" alt="'+s.name+'"></div></div>'
+      +'<div class="srcBtns"><button class="btn '+(isLogged?'':'primary')+'">'+(isLogged?'Odhlásit':'Přihlásit')+'</button></div>';
+    const mainBtn=card.querySelector('.srcBtns .btn');
+    mainBtn.onclick=ev=>{ev.stopPropagation();
+      if(isLogged){ logged[s.id]=false; if(s.id===curSrc){selIdx=0;} renderAll(); log('odhlášeno (demo) '+s.name); }
+      else { if(s.id!==curSrc){curSrc=s.id; selIdx=0;} openLoginModal(s.id); }};
+    card.onclick=ev=>{ev.stopPropagation(); if(s.id!==curSrc){curSrc=s.id; selIdx=0; stationFilter=''; const fi=document.getElementById('stationFilterProto'); if(fi) fi.value=''; syncFilterClear(); renderAll(); log('zdroj → '+s.name);}};
+    w.appendChild(card);
+  });
+}
+/* demo prihlaseni: samostatne modalni okno (zadny panel v menu):
+   krok 1 jmeno+heslo -> krok 2 vyber profilu (Oneplay) -> zpet */
+const DEMO_PROFILES=[{name:'Alena',color:'#2563eb'},{name:'Petr',color:'#059669'},{name:'Děti',color:'#d4a017'}];
+let loginFor=null;
+const loginModal=document.getElementById('loginModal');
+function showCreds(){ document.getElementById('loginStepCreds').style.display='';
+  document.getElementById('loginStepProfiles').style.display='none'; }
+function showProfiles(){
+  document.getElementById('loginStepCreds').style.display='none';
+  document.getElementById('loginStepProfiles').style.display='';
+  const w=document.getElementById('profileList'); w.innerHTML='';
+  DEMO_PROFILES.forEach(pr=>{
+    const d=document.createElement('div'); d.className='prof';
+    d.innerHTML='<div class="ava" style="background:'+pr.color+'">'+pr.name[0]+'</div><div class="pname">'+pr.name+'</div>';
+    d.onclick=()=>finishDemoLogin(pr);
+    w.appendChild(d);
+  });
+}
+function showLoginError(msg){
+  document.getElementById('loginErrText').textContent=msg;
+  document.getElementById('loginErr').classList.add('on');
+  const card=document.getElementById('loginCard');
+  card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
+  const u=document.getElementById('loginUser'), pw=document.getElementById('loginPass');
+  (u.value?pw:u).focus();
+}
+function openLoginModal(id){ loginFor=id;
+  document.getElementById('loginTitle').textContent='Přihlášení – '+SOURCES.find(x=>x.id===id).name+' (demo)';
+  document.getElementById('loginErr').classList.remove('on');
+  showCreds(); loginModal.classList.add('on');
+  setTimeout(()=>document.getElementById('loginUser').focus(),50);
+}
+function closeLoginModal(){ loginModal.classList.remove('on'); loginFor=null; }
+function finishDemoLogin(profile){
+  logged[loginFor]=true;
+  if(profile) log('demo profil → '+profile.name);
+  if(curSrc!==loginFor){curSrc=loginFor; selIdx=0;}
+  closeLoginModal(); renderAll();
+  log('demo přihlášeno → '+SOURCES.find(x=>x.id===loginFor).name);
+}
+document.getElementById('btnCloseLogin').onclick=closeLoginModal;
+document.getElementById('btnCloseLogin2').onclick=closeLoginModal;
+document.getElementById('btnBackToCreds').onclick=showCreds;
+document.getElementById('loginUser').addEventListener('input',()=>document.getElementById('loginErr').classList.remove('on'));
+document.getElementById('loginPass').addEventListener('input',()=>document.getElementById('loginErr').classList.remove('on'));
+document.getElementById('btnDoLogin').onclick=()=>{
+  const u=document.getElementById('loginUser').value.trim(), pw=document.getElementById('loginPass').value;
+  if(!u||!pw){ showLoginError('Vyplň jméno i heslo (demo: stačí cokoli).'); return; }
+  log('demo ověření → '+u);
+  if(loginFor==='oneplay') showProfiles();
+  else finishDemoLogin(null); /* SledováníTV profily nemá, jde rovnou */
+};
+const normName=s=>(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'');
+let stationFilter='';
+function renderFavs(){
+  const w=$('#favs');
+  const hr=document.getElementById('hrFavsProto');
+  const known=favs.map(stationByName).filter(Boolean);
+  const show=known.length>0;
+  w.style.display=show?'':'none'; if(hr) hr.style.display=show?'':'none';
+  if(!show) return;
+  w.innerHTML='';
+  known.forEach(st=>{
+    const n=st.name;
+    const sel=ch()[selIdx]&&ch()[selIdx].name===n;
+    const d=document.createElement('div'); d.className='fav'+(sel?' sel':''); d.dataset.name=n;
+    if(st.logo){ d.style.background='#fff'; d.innerHTML='<img src="'+st.logo+'" alt="'+n+'">'; }
+    else{ d.textContent=st.ini; d.style.background=st.color; }
+    d.title=n+' (podrž a táhni pro přeskládání)';
+    d.addEventListener('pointerdown',e=>favDragStart(e,d,n));
+    d.onclick=ev=>{ if(suppressClick){suppressClick=false; return;} ev.stopPropagation();
+      const i=ch().findIndex(s=>s.name===n);
+      if(i>=0){ selIdx=i; renderStage(); renderStations(); log('oblíbená → '+n); }
+      else log('„'+n+'“ není v aktuálním zdroji ('+srcOf().name+')');};
+    w.appendChild(d);
+  });
+}
+/* vlastní drag & drop oblíbených: duch pod kurzorem + putující díra (vkládací režim) */
+let dragEl=null, dragName='', dragHole=null, dragSX=0, dragSY=0, dragging=false, suppressClick=false, dragFrom=-1;
+/* Vkládací režim: tažená ikona se vyndá z toku a díra cestuje na pozici vložení.
+   Všechny ikony za dírou se posunou společně (i přes zalomené řádky) —
+   jejich vzájemné pořadí se nikdy nemění, žádné prohazování. */
+function favDragStart(e,d,n){
+  if(e.button!==undefined&&e.button>0) return;
+  window.removeEventListener('pointermove',favDragMove);
+  window.removeEventListener('pointerup',favDragEnd);
+  window.removeEventListener('pointercancel',favDragEnd);
+  dragEl=d; dragName=n; dragSX=e.clientX; dragSY=e.clientY; dragging=false;
+  dragFrom=favs.indexOf(n);
+  window.addEventListener('pointermove',favDragMove);
+  window.addEventListener('pointerup',favDragEnd);
+  window.addEventListener('pointercancel',favDragEnd);
+}
+function favDragMove(e){
+  if(!dragEl) return;
+  if(!dragging){
+    if(Math.hypot(e.clientX-dragSX,e.clientY-dragSY)<6) return;
+    dragging=true; suppressClick=true;
+    const r=dragEl.getBoundingClientRect();
+    dragHole=document.createElement('div'); dragHole.className='fav-hole';
+    dragEl.before(dragHole);
+    dragEl.classList.add('ghost');
+    dragEl.style.width=r.width+'px'; dragEl.style.height=r.height+'px';
+    document.body.appendChild(dragEl);
+    log('★ tažení: „'+dragName+'“');
+  }
+  dragEl.style.left=(e.clientX-dragEl.offsetWidth/2)+'px';
+  dragEl.style.top=(e.clientY-dragEl.offsetHeight/2)+'px';
+  // index vložení ve 2D na layoutu BEZ díry (jinak by se díra a ikony přetahovaly
+  // o pozici a vše kmitalo). Kurzor patří před první ikonu, která je buď výrazně
+  // pod ním, nebo ve stejném pásu, ale kurzor je vlevo od jejího středu.
+  const w=document.querySelector('#favs');
+  dragHole.remove();
+  const items=[...w.querySelectorAll('.fav')];
+  let idx=items.length;
+  for(let k=0;k<items.length;k++){
+    const r=items[k].getBoundingClientRect();
+    const midX=r.left+r.width*0.5, midY=r.top+r.height*0.5, tol=r.height*0.3;
+    if(e.clientY<midY-tol){ idx=k; break; }
+    if(Math.abs(e.clientY-midY)<=tol&&e.clientX<midX){ idx=k; break; }
+  }
+  const ref=idx<items.length?items[idx]:null;
+  w.insertBefore(dragHole,ref);
+}
+function favDragEnd(){
+  window.removeEventListener('pointermove',favDragMove);
+  window.removeEventListener('pointerup',favDragEnd);
+  window.removeEventListener('pointercancel',favDragEnd);
+  if(!dragEl) return;
+  if(dragging&&dragHole){
+    dragEl.classList.remove('ghost');
+    dragEl.style.width=''; dragEl.style.height=''; dragEl.style.left=''; dragEl.style.top='';
+    dragHole.replaceWith(dragEl);
+    favs=[...document.querySelectorAll('#favs .fav')].map(el=>el.dataset.name);
+    const to=favs.indexOf(dragName);
+    renderFavs(); renderStations();
+    log('★ přesun „'+dragName+'“: pozice '+(dragFrom+1)+' → '+(to+1));
+  }
+  dragEl=null; dragHole=null; dragging=false;
+}
+function syncFilterClear(){ document.getElementById('stationFilterClear').classList.toggle('on', !!document.getElementById('stationFilterProto').value); }
+document.addEventListener('input',e=>{
+  if(e.target&&e.target.id==='stationFilterProto'){ stationFilter=e.target.value; syncFilterClear(); renderStations(); }
+});
+document.getElementById('stationFilterClear').onclick=()=>{
+  const fi=document.getElementById('stationFilterProto'); fi.value=''; stationFilter='';
+  syncFilterClear(); renderStations(); fi.focus();
+};
+function renderStations(){
+  if (typeof hideEpgPop === 'function') hideEpgPop();
+  const w=$('#stationList'); w.innerHTML='';
+  const list=ch();
+  const show=list.length>0;
+  for(const id of ['hrStationsProto','stationFilterWrap']) { const el=document.getElementById(id); if(el) el.style.display=show?'':'none'; }
+  w.style.display=show?'':'none';
+  if(!show) return;
+  const q=normName(stationFilter);
+  const vis=list.map((st,i)=>({st,i})).filter(o=>!q||normName(o.st.name).includes(q));
+  if(!vis.length){ w.innerHTML='<div class="emptyNote">Nic neodpovídá filtru.</div>'; return; }
+  vis.forEach(({st,i})=>{
+    const r=document.createElement('div'); r.className='stRow'+(i===selIdx?' sel':'');
+    const fav=favs.includes(st.name);
+    const ep=(st.epg||[]).find(e=>e[1]===st.now);
+    const bar='<div class="bar"><div style="width:'+st.pct+'%"></div></div>';
+    const prog=ep&&ep[0] ? '<div class="progRow"><span>'+ep[0]+'</span>'+bar+'</div>' : bar;
+    const lock=(st.locked&&st.locked!=='none') ? ' <span class="lock" title="uzamčeno">🔒</span>' : '';
+    r.innerHTML='<div class="stIco" style="background:'+st.color+'">'+st.ini+'</div>'+
+      '<div class="stMid"><div class="stName">'+st.name+lock+
+      ' <span class="star '+(fav?'on':'')+'" title="oblíbená">'+(fav?'★':'☆')+'</span></div>'+
+      '<div class="stNow">'+st.now+'</div>'+prog+'</div>';
+    r.querySelector('.star').onclick=ev=>{ev.stopPropagation();
+      if(fav) favs=favs.filter(x=>x!==st.name); else favs.push(st.name);
+      renderFavs(); renderStations(); log((fav?'☆ odebráno z oblíbených: ':'★ oblíbená: ')+st.name);};
+    r.onmouseenter=()=>scheduleEpgPop(r,st);
+    r.onmouseleave=()=>hideEpgPop();
+    r.onclick=()=>{ selIdx=i; renderFavs(); renderStage(); renderStations(); log('stanice → '+st.name+' („'+st.now+'“)'); };
+    w.appendChild(r);
+  });
+}
+/* EPG popup: po chvili hoveru seznam dalsich poradu VLEVO od praveho menu (nezakryva ho),
+   bez scrollbaru (max 6), vzdy cely v obrazovce */
+let epgPopT=null;
+function scheduleEpgPop(row,st){
+  hideEpgPop();
+  epgPopT=setTimeout(()=>showEpgPop(row,st),600);
+}
+function hideEpgPop(){
+  clearTimeout(epgPopT); epgPopT=null;
+  document.getElementById('epgPop').classList.remove('on');
+}
+function showEpgPop(row,st){
+  const pop=document.getElementById('epgPop'), list=document.getElementById('epgPopList');
+  document.getElementById('epgPopHead').textContent=st.name;
+  list.innerHTML='';
+  (st.epg||[]).slice(0,6).forEach(p=>{
+    const d=document.createElement('div'); d.className='ep'+(p[2]?' now':'');
+    d.innerHTML='<span class="t">'+p[0]+'</span><span class="ti">'+p[1]+(p[2]?'<span class="live">LIVE</span>':'')+'</span>'
+      +(p[2]?'<div class="epProg"><div style="width:'+(p[3]||10)+'%'+'"></div></div>':'');
+    list.appendChild(d);
+  });
+  pop.classList.add('on');
+  const panelW=document.getElementById('panelR').offsetWidth||350;
+  const pw=270, gap=10;
+  pop.style.left=Math.max(8, window.innerWidth-panelW-gap-pw)+'px';
+  const r=row.getBoundingClientRect();
+  const ph=pop.offsetHeight||220;
+  pop.style.top=Math.max(8, Math.min(r.top, window.innerHeight-ph-8))+'px';
+}
+document.getElementById('stationList').addEventListener('scroll',hideEpgPop,{passive:true});
+/* panely se vysouvaji priblizenim mysi k okraji; levy jen kdyz je program */
+let hideT=null;
+function scheduleClose(){
+  clearTimeout(hideT);
+  hideT=setTimeout(()=>{
+    if(!ch().length){ document.body.classList.remove('leftOpen'); return; }
+    document.body.classList.remove('rightOpen','leftOpen');
+  },350);
+}
+document.addEventListener('mousemove',e=>{
+  if(e.clientX>=window.innerWidth-24){ clearTimeout(hideT); document.body.classList.add('rightOpen'); }
+  else if(e.clientX<=24&&ch().length){ clearTimeout(hideT); document.body.classList.add('leftOpen'); }
+});
+document.getElementById('panelR').addEventListener('mouseleave',scheduleClose);
+document.getElementById('panelL').addEventListener('mouseleave',scheduleClose);
+document.getElementById('panelR').addEventListener('mouseenter',()=>clearTimeout(hideT));
+document.getElementById('panelL').addEventListener('mouseenter',()=>clearTimeout(hideT));
+function updatePin(){
+  if(!ch().length){ document.body.classList.add('rightOpen'); document.body.classList.remove('leftOpen'); }
+}
+document.getElementById('wMin').onclick=()=>log('demo: minimalizace (v aplikaci)');
+document.getElementById('wMax').onclick=()=>{ toggleFS(); };
+document.getElementById('wClose').onclick=()=>log('demo: zavření (v aplikaci)');
+document.getElementById('btnHelp').onmouseenter=(e)=>{
+  const pop=document.getElementById('helpPop');
+  pop.classList.add('on');
+  const panelW=document.getElementById('panelR').offsetWidth||350;
+  pop.style.left=Math.max(8, window.innerWidth-panelW-10-300)+'px';
+  const r=e.target.getBoundingClientRect();
+  const ph=pop.offsetHeight||380;
+  pop.style.top=Math.max(8, Math.min(r.top-40, window.innerHeight-ph-8))+'px';
+};
+document.getElementById('btnHelp').onmouseleave=()=>document.getElementById('helpPop').classList.remove('on');
+document.addEventListener('keydown',e=>{
+  const tag=(e.target&&e.target.tagName||'').toLowerCase();
+  if(tag==='input'||tag==='textarea'){ if(e.key!=='Escape') return; }
+  if(e.key===' '){ e.preventDefault(); if(ch().length) togglePause(); }
+  else if(e.key==='f'||e.key==='F'){ toggleFS(); }
+  else if(e.key==='Escape'){ document.body.classList.remove('rightOpen','leftOpen'); hideEpgPop(); closeLoginModal(); }
+  else if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+    const list=ch(); if(!list.length) return;
+    selIdx=(selIdx+(e.key==='ArrowDown'?1:-1)+list.length)%list.length;
+    renderAll(); log('stanice → '+list[selIdx].name);
+  }
+});
+function renderAll(){ renderSources(); renderFavs(); renderStations(); renderStage(); updatePin(); }
+/* roztahovani menu mysi za vnitrni okraj */
+(function(){
+  const savedR=+localStorage.getItem('protoW_R'), savedL=+localStorage.getItem('protoW_L');
+  if(savedR>0) document.getElementById('panelR').style.width=savedR+'px';
+  if(savedL>0) document.getElementById('panelL').style.width=savedL+'px';
+  [['resR','panelR','R'],['resL','panelL','L']].forEach(([rid,pid,key])=>{
+    const h=document.getElementById(rid), p=document.getElementById(pid);
+    h.addEventListener('pointerdown',e=>{
+      e.preventDefault(); e.stopPropagation(); h.setPointerCapture(e.pointerId); h.classList.add('drag');
+      const move=ev=>{
+        const w=pid==='panelR' ? window.innerWidth-ev.clientX : ev.clientX;
+        p.style.width=Math.max(220,Math.min(620,w))+'px';
+      };
+      const up=()=>{ h.classList.remove('drag');
+        h.removeEventListener('pointermove',move); h.removeEventListener('pointerup',up);
+        localStorage.setItem('protoW_'+key, parseInt(p.style.width,10)); };
+      h.addEventListener('pointermove',move); h.addEventListener('pointerup',up);
+    });
+  });
+})();
+renderAll();
+log('prototyp v2 načten · zdroj '+srcOf().name);
+</script>
+</body>
+</html>

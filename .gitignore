@@ -1,0 +1,16 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/gen/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# App runtime data (local settings live next to the EXE / in app data)
+*.log

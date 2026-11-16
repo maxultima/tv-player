@@ -1,0 +1,24 @@
+{
+  "name": "tv-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "build:portable": "tauri build",
+    "tauri": "tauri",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.4.0",
+    "@tauri-apps/plugin-opener": "^2.4.0",
+    "@tauri-apps/plugin-store": "^2.2.0",
+    "@tauri-apps/plugin-window-state": "^2.3.0",
+    "dashjs": "^4.7.4",
+    "hls.js": "^1.5.18"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.4.0"
+  }
+}
