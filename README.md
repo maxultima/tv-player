@@ -1,5 +1,7 @@
 # TV Client
 
+![TV Client banner](docs/banner.jpg)
+
 ![TV Client screenshot](docs/screenshot01.jpg)
 
 A replacement GUI for online TV platforms — a lightweight desktop client for Windows.
