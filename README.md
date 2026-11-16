@@ -1,6 +1,6 @@
-# TV Client
-
 ![TV Client banner](docs/banner.jpg)
+
+# TV Client
 
 ![TV Client screenshot](docs/screenshot01.jpg)
 
