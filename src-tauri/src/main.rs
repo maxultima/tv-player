@@ -110,8 +110,11 @@ fn main() {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.set_decorations(false);
             }
+            // Obnova geometrie rovnou v setupu (deterministicke, bez zavislosti na frontendu),
+            // a pak kontrola viditelnosti na skutecne pozici.
+            let _ = winstate::win_apply(app.handle().clone());
             state::ensure_window_visible(app);
-            // Pojistka: okno se vzdy ukaze, i kdyby frontend win_apply nikdy nezavolal.
+            // Pojistka: okno se vzdy ukaze, i kdyby neco selhalo.
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_secs(6)).await;

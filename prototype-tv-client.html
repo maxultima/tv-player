@@ -43,7 +43,15 @@
   body.rightOpen #panelR { transform:none; }
   .secLabel { font-size:11px; text-transform:uppercase; letter-spacing:1.5px; color:var(--dim); padding:10px 14px 6px; }
   #sources { display:flex; flex-direction:row; gap:8px; padding:12px 14px 4px; }
+  #srcToggle { font-size:15px; }
   .srcCard { flex:1 1 0; min-width:0; }
+  /* Sbaleno: jen ikony vedle sebe (vybrany ma cerveny ramecek), zadna tlacitka = zadne omylne odhlaseni. */
+  body.srcCollapsed #sources .srcBtns { display:none; }
+  body.srcCollapsed #sources .srcCard { padding:10px; }
+  #volRow { display:flex; gap:8px; align-items:center; padding:8px 14px 0; color:var(--dim); font-size:12px; }
+  #volIco { cursor:pointer; user-select:none; font-size:14px; }
+  #volSlider { flex:1; min-width:0; accent-color:var(--acc); cursor:pointer; }
+  #volVal { min-width:38px; text-align:right; font-variant-numeric:tabular-nums; }
   .resizer { position:absolute; top:0; bottom:0; width:8px; z-index:60; cursor:ew-resize; touch-action:none; }
   #resR { left:0; } #resL { right:0; }
   .resizer:hover, .resizer.drag { background:#e11d4888; }
@@ -180,6 +188,23 @@
   #epgPop h4 { font-size:13px; margin-bottom:6px; }
   #epgPop .ep { padding:6px 8px; }
   #epgPop .ep .t { width:38px; }
+  /* Detail pořadu: plovoucí okno VPRAVO od levého menu, celé viditelné bez scrollbarů
+     (myš se dovnitř nedostane, proto pointer-events:none a ořezaný obsah). */
+  #progDetail { position:fixed; z-index:90; width:320px; display:none; background:var(--panel2);
+    border:1px solid var(--line); border-radius:14px; padding:0 0 10px; overflow:hidden;
+    max-height:calc(100vh - 16px); box-shadow:0 14px 44px rgba(0,0,0,.6); pointer-events:none; }
+  #progDetail.on { display:block; }
+  #progDetail .pdImg { width:100%; max-height:150px; object-fit:cover; display:block; background:#0b0e14; }
+  #progDetail .pdBody { padding:10px 12px 0; }
+  #progDetail h3 { font-size:15px; margin-bottom:2px; }
+  #progDetail .pdMeta { font-size:11px; color:var(--dim); margin-bottom:6px; }
+  #progDetail .pdTime { font-size:12px; margin-bottom:6px; display:flex; align-items:center; gap:8px; }
+  #progDetail .pdTime .live { background:var(--acc); color:#fff; font-size:10px; font-weight:700;
+    border-radius:4px; padding:0 6px; }
+  #progDetail .pdBar { height:4px; background:#00000077; border-radius:99px; overflow:hidden; margin:-2px 0 8px; }
+  #progDetail .pdBar div { height:100%; background:linear-gradient(90deg,var(--acc2),#60a5fa); border-radius:99px; }
+  #progDetail .pdDesc { font-size:12px; line-height:1.5; color:var(--text); display:-webkit-box;
+    -webkit-line-clamp:9; -webkit-box-orient:vertical; overflow:hidden; }
   .bar > div { height:100%; background:linear-gradient(90deg,var(--acc2),#60a5fa); border-radius:99px; }
   /* ---------- left panel ---------- */
   #panelL { position:fixed; top:0; left:0; bottom:0; width:310px; z-index:50;
@@ -221,7 +246,7 @@
   <!-- RIGHT: sources / favs / stations -->
   <aside id="panelR">
     <div class="resizer" id="resR" title="roztáhni myšítkem"></div>
-    <div id="winBtns"><span class="wbtn help" id="btnHelp" title="Nápověda k ovládání">?</span><span class="grp"><span class="wbtn" id="wMin" title="Minimalizovat">—</span><span class="wbtn" id="wMax" title="Maximalizovat">▢</span><span class="wbtn danger" id="wClose" title="Zavřít">✕</span></span></div>
+    <div id="winBtns"><span class="grp"><span class="wbtn help" id="srcToggle" title="Sbalit/rozbalit zdroje">▾</span><span class="wbtn help" id="btnHelp" title="Nápověda k ovládání">?</span></span><span class="grp"><span class="wbtn" id="wMin" title="Minimalizovat">—</span><span class="wbtn" id="wMax" title="Maximalizovat">▢</span><span class="wbtn danger" id="wClose" title="Zavřít">✕</span></span></div>
     <div id="helpPop">
       <h4>Hlavní plocha</h4>
       <div class="hrow"><span class="hkeys"><kbd>Klik</kbd></span><span>pauza</span></div>
@@ -245,6 +270,7 @@
       <div class="hrow"><span class="hkeys">— ▢ ✕</span><span>okno</span></div>
     </div>
     <div id="sources"></div>
+    <div id="volRow"><span id="volIco" title="Hlasitost">🔊</span><input type="range" id="volSlider" min="0" max="100" value="80"><span id="volVal">80&nbsp;%</span></div>
     <div id="actLogWrap"><div id="actLog"></div></div>
     <div id="loginModal">
       <div id="loginCard">
@@ -279,11 +305,13 @@
     <div id="stationList"></div>
   </aside>
   <div id="epgPop"><h4 id="epgPopHead"></h4><div id="epgPopList"></div></div>
+  <div id="progDetail"><img class="pdImg" id="pdImg" alt=""><div class="pdBody"><h3 id="pdTitle"></h3><div class="pdMeta" id="pdMeta"></div><div class="pdTime" id="pdTime"></div><div class="pdBar" id="pdBar" style="display:none"><div id="pdBarFill"></div></div><div class="pdDesc" id="pdDesc"></div></div></div>
 
   <!-- LEFT: EPG -->
   <aside id="panelL">
     <div class="resizer" id="resL" title="roztáhni myšítkem"></div>
     <div id="epgHead">Program</div>
+    <div id="epgSub"></div>
     <div id="epgFilterWrap"><input id="epgFilterDemo" placeholder="Hledat pořad…" autocomplete="off"><button id="epgFilterDemoClear" title="Smazat text">×</button></div>
     <div id="epg"></div>
   </aside>
@@ -312,12 +340,35 @@ const DATA = {
     ST('Nova Action','NAC','#dc2626','Krimiseriál: Stopa',60,[['17:00','Akční odpoledne'],['19:00','Krimiseriál: Stopa',1,60],['21:00','Horor: Noc']])
   ]
 };
-DATA.sltv.find(s=>s.name==='Óčko').locked='pin'; /* demo zamčené stanice */
+DATA.sltv.find(s=>s.name==='Óčko').locked='pin';
+/* Demo popisy pořadů (realita: SledováníTV dává název/čas/popis, Oneplay navíc obrázek) */
+const DEMO_DESC = {
+  'AZ-kvíz': 'Soutěžní pořad pro chytré hlavy. Moderátor Aleš Zbořil klade otázky z vědy, historie i kultury.',
+  'Události': 'Hlavní zpravodajská relace ČT. Přehled nejdůležitějších událostí dne z domova i ze světa.',
+  'Všechnopárty': 'Zábavná talkshow Karla Šípa s nevšedními hosty a živou kapelou.',
+  'Televizní noviny': 'Nejsledovanější zpravodajství. Sport, počasí a reportáže z regionů.',
+  'Ulice': 'Dlouholetý seriál ze života ulice, rodiny a sousedských vztahů.',
+  'Výměna manželek': 'Reality show, ve které si dvě ženy na deset dní vymění domácnost.',
+  'Prostřeno!': 'Kuchařská soutěž amatérů. Kdo uvaří nejlepší tříchodové menu týdne?',
+  'Ano, šéfe': 'Zdeněk Pohlreich zachraňuje restaurace na pokraji krachu.',
+  'Fotbal: liga': 'Přímý přenos ligového utkání včetně poločasové analýzy expertů.',
+  'Top 10 klipů': 'Deset nejhranějších videoklipů týdne podle diváckého hlasování.',
+  'Cestománie': 'Cestovatelský dokument z exotických koutů planety.',
+  'Hokej: extraliga': 'Přímý přenos extraligového kola, sestavy a rozhovory z kabin.',
+  'Tenis: finále': 'Finálový zápas turnaje, přímý přenos z centrálního dvorce.',
+  'Komedie: Dovolená': 'Letní komedie o rodinné dovolené, která se zvrtne hned první den.',
+  'Krimiseriál: Stopa': 'Detektivní seriál. Tým kriminalistů řeší případ zmizelé svědkyně.',
+  'Film: Stanice': 'Večerní film. Osudy lidí na maloměstském nádraží v jednom osudovém týdnu.',
+  'Seriál: Ulice času': 'Seriálová sága dvou rodin napříč desetiletími.'
+};
+const DEMO_IMG_FILM = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="150"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1e1b4b"/><stop offset="1" stop-color="#7c3aed"/></linearGradient></defs><rect width="320" height="150" fill="url(#g)"/><text x="160" y="85" font-size="52" text-anchor="middle" fill="#ffffff" opacity="0.9">F</text></svg>');
+const DEMO_IMG_SPORT = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="150"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#022c22"/><stop offset="1" stop-color="#059669"/></linearGradient></defs><rect width="320" height="150" fill="url(#g)"/><text x="160" y="85" font-size="52" text-anchor="middle" fill="#ffffff" opacity="0.9">S</text></svg>');
+const DEMO_IMG = { 'Film: Stanice': DEMO_IMG_FILM, 'Hokej: extraliga': DEMO_IMG_SPORT, 'Tenis: finále': DEMO_IMG_SPORT }; /* demo zamčené stanice */
 let curSrc = 'sltv';
 let selIdx = 0;
 let favs = ['ČT1','Nova','ČT sport'];
 let paused = false;
-let logged = { sltv:false, oneplay:false };
+let logged = { sltv:true, oneplay:true }; /* prototyp startuje prihlaseny (demo) */
 const ch = () => logged[curSrc] ? DATA[curSrc] : [];
 
 const $ = s=>document.querySelector(s);
@@ -374,12 +425,15 @@ function renderEpg(st){
   const e=$('#epg'); e.innerHTML='';
   const q=normName(epgFilterDemo);
   let shown=0;
-  st.epg.filter(p=>!q||normName(p[1]).includes(q)).forEach(p=>{
+  const rows=st.epg.filter(p=>!q||normName(p[1]).includes(q));
+  rows.forEach((p,idx)=>{
     shown++;
     const d=document.createElement('div'); d.className='ep'+(p[2]?' now':'');
     d.innerHTML='<span class="t">'+p[0]+'</span><span class="ti">'+p[1]+(p[2]?'<span class="live">LIVE</span>':'')+'</span>'
       +(p[2]?'<div class="epProg"><div style="width:'+(p[3]||10)+'%'+'"></div></div>':'');
     d.onclick=ev=>{ev.stopPropagation(); st.now=p[1]; st.pct=p[3]||10; renderStage(); renderStations(); log('EPG: „'+p[1]+'“ → právě běží na '+st.name);};
+    d.onmouseenter=()=>scheduleProgDetail(d,st,rows,idx);
+    d.onmouseleave=()=>hideProgDetail();
     e.appendChild(d);
   });
   if (!shown) e.innerHTML='<div class="emptyNote">Nic neodpovídá filtru.</div>';
@@ -424,6 +478,38 @@ function renderSources(){
     w.appendChild(card);
   });
 }
+/* Sbalovani zdroju: sipka vlevo; sbalene jen ikony (vybrany s cervenym rameckem), bez tlacitek */
+let srcCollapsed = localStorage.getItem('protoSrcCollapsed') === '1';
+function syncSrcCollapsed(){
+  document.body.classList.toggle('srcCollapsed', srcCollapsed);
+  document.getElementById('srcToggle').textContent = srcCollapsed ? '▸' : '▾';
+}
+document.getElementById('srcToggle').onclick = ev => {
+  ev.stopPropagation();
+  srcCollapsed = !srcCollapsed;
+  localStorage.setItem('protoSrcCollapsed', srcCollapsed ? '1' : '0');
+  syncSrcCollapsed();
+  log(srcCollapsed ? 'zdroje sbaleny (jen ikony)' : 'zdroje rozbaleny');
+};
+syncSrcCollapsed();
+/* Ovladani hlasitosti streamu (demo: jen UI + log, zadne audio) */
+let demoVol = +(localStorage.getItem('protoVol') || 80);
+function syncVol(muted){
+  const s = document.getElementById('volSlider'), v = document.getElementById('volVal'), ic = document.getElementById('volIco');
+  s.value = demoVol; v.innerHTML = demoVol + '&nbsp;%'; ic.textContent = (muted || demoVol === 0) ? '🔇' : '🔊';
+}
+document.getElementById('volSlider').addEventListener('input', e => {
+  demoVol = +e.target.value;
+  localStorage.setItem('protoVol', demoVol);
+  syncVol();
+});
+document.getElementById('volSlider').addEventListener('change', () => log('hlasitost (demo): ' + demoVol + ' %'));
+document.getElementById('volIco').onclick = () => {
+  demoVol = demoVol === 0 ? 80 : 0;
+  localStorage.setItem('protoVol', demoVol);
+  syncVol(); log(demoVol === 0 ? 'ztlumeno (demo)' : 'hlasitost (demo): ' + demoVol + ' %');
+};
+syncVol();
 /* demo prihlaseni: samostatne modalni okno (zadny panel v menu):
    krok 1 jmeno+heslo -> krok 2 vyber profilu (Oneplay) -> zpet */
 const DEMO_PROFILES=[{name:'Alena',color:'#2563eb'},{name:'Petr',color:'#059669'},{name:'Děti',color:'#d4a017'}];
@@ -532,18 +618,17 @@ function favDragMove(e){
   }
   dragEl.style.left=(e.clientX-dragEl.offsetWidth/2)+'px';
   dragEl.style.top=(e.clientY-dragEl.offsetHeight/2)+'px';
-  // index vložení ve 2D na layoutu BEZ díry (jinak by se díra a ikony přetahovaly
-  // o pozici a vše kmitalo). Kurzor patří před první ikonu, která je buď výrazně
-  // pod ním, nebo ve stejném pásu, ale kurzor je vlevo od jejího středu.
+  // index vložení podle HRAN (ne středů): díra uskakuje ihned, jak kurzor přejede hranu ikony.
+  // Měří se na layoutu BEZ díry (jinak by se díra a ikony přetahovaly o pozici a vše kmitalo).
   const w=document.querySelector('#favs');
   dragHole.remove();
   const items=[...w.querySelectorAll('.fav')];
   let idx=items.length;
   for(let k=0;k<items.length;k++){
     const r=items[k].getBoundingClientRect();
-    const midX=r.left+r.width*0.5, midY=r.top+r.height*0.5, tol=r.height*0.3;
-    if(e.clientY<midY-tol){ idx=k; break; }
-    if(Math.abs(e.clientY-midY)<=tol&&e.clientX<midX){ idx=k; break; }
+    const inBand=e.clientY>=r.top-2&&e.clientY<=r.bottom+2;
+    if(!inBand){ if(e.clientY<r.top){ idx=k; break; } continue; }
+    if(e.clientX<r.right-2){ idx=k; break; }
   }
   const ref=idx<items.length?items[idx]:null;
   w.insertBefore(dragHole,ref);
@@ -633,9 +718,44 @@ function showEpgPop(row,st){
   pop.style.top=Math.max(8, Math.min(r.top, window.innerHeight-ph-8))+'px';
 }
 document.getElementById('stationList').addEventListener('scroll',hideEpgPop,{passive:true});
+/* Detail pořadu: hover nad pořadem v levém menu → plovoucí okno VPRAVO od menu (nic nepřekrývá),
+   celé v obrazovce bez scrollbarů, myš se dovnitř nedostane (pointer-events:none v CSS). */
+let progDetailT=null;
+function scheduleProgDetail(row,st,rows,idx){
+  hideProgDetail();
+  progDetailT=setTimeout(()=>showProgDetail(row,st,rows,idx),300);
+}
+function hideProgDetail(){
+  clearTimeout(progDetailT); progDetailT=null;
+  document.getElementById('progDetail').classList.remove('on');
+}
+function showProgDetail(row,st,rows,idx){
+  const p=rows[idx]; if(!p) return;
+  const title=p[1], live=!!p[2], pct=p[3]||10;
+  const end=rows[idx+1]?rows[idx+1][0]:'';
+  const img=(curSrc==='oneplay'?DEMO_IMG[title]:null)||null;
+  const imgEl=document.getElementById('pdImg');
+  if(img){ imgEl.src=img; imgEl.style.display=''; } else { imgEl.removeAttribute('src'); imgEl.style.display='none'; }
+  document.getElementById('pdTitle').textContent=title;
+  document.getElementById('pdMeta').textContent=st.name+' · '+srcOf().name;
+  document.getElementById('pdTime').innerHTML=p[0]+(end?' – '+end:'')+(live?'<span class="live">ŽIVĚ</span>':'');
+  const bar=document.getElementById('pdBar');
+  if(live){ bar.style.display=''; document.getElementById('pdBarFill').style.width=pct+'%'; }
+  else bar.style.display='none';
+  document.getElementById('pdDesc').textContent=DEMO_DESC[title]||('Pořad „'+title+'“ ('+p[0]+'). Podrobnosti (herci, rok, žánr) poskytne EPG zdroje.');
+  const pop=document.getElementById('progDetail');
+  pop.classList.add('on');
+  const panelW=document.getElementById('panelL').offsetWidth||310;
+  pop.style.left=(panelW+12)+'px';
+  const r=row.getBoundingClientRect();
+  const ph=pop.offsetHeight||300;
+  pop.style.top=Math.max(8,Math.min(r.top-30,window.innerHeight-ph-8))+'px';
+}
+document.getElementById('epg').addEventListener('scroll',hideProgDetail,{passive:true});
 /* panely se vysouvaji priblizenim mysi k okraji; levy jen kdyz je program */
 let hideT=null;
 function scheduleClose(){
+  hideProgDetail();
   clearTimeout(hideT);
   hideT=setTimeout(()=>{
     if(!ch().length){ document.body.classList.remove('leftOpen'); return; }
@@ -671,7 +791,7 @@ document.addEventListener('keydown',e=>{
   if(tag==='input'||tag==='textarea'){ if(e.key!=='Escape') return; }
   if(e.key===' '){ e.preventDefault(); if(ch().length) togglePause(); }
   else if(e.key==='f'||e.key==='F'){ toggleFS(); }
-  else if(e.key==='Escape'){ document.body.classList.remove('rightOpen','leftOpen'); hideEpgPop(); closeLoginModal(); }
+  else if(e.key==='Escape'){ document.body.classList.remove('rightOpen','leftOpen'); hideEpgPop(); hideProgDetail(); closeLoginModal(); }
   else if(e.key==='ArrowDown'||e.key==='ArrowUp'){
     const list=ch(); if(!list.length) return;
     selIdx=(selIdx+(e.key==='ArrowDown'?1:-1)+list.length)%list.length;

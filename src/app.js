@@ -268,13 +268,54 @@ async function winInfoExfil() {
   try { localStorage.setItem('tvklient.wininfo', payload); } catch {}
 }
 async function restoreWinGeometry() {
+  // Rust setup geometrii uz obnovil; frontend jen overi a zaloguje vysledek.
   if (!invoke) return;
-  try { await invoke('win_apply'); }
+  try {
+    const applied = await invoke('win_apply');
+    const r = await invoke('win_info');
+    log('okno: ' + (applied ? 'obnoveno' : 'vychozi geometrie') + ' ' + r.x + ',' + r.y + ' ' + r.w + 'x' + r.h);
+  }
   catch (e) { log('okno: obnova selhala: ' + (e?.message || e)); }
 }
 document.getElementById('wMin').onclick = (e) => { e.stopPropagation(); if (invoke) invoke('win_minimize').catch(() => {}); };
 document.getElementById('wMax').onclick = (e) => { e.stopPropagation(); if (invoke) invoke('win_maximize_toggle').catch(() => {}); };
 document.getElementById('wClose').onclick = (e) => { e.stopPropagation(); if (invoke) invoke('win_close').catch(() => {}); };
+// Sbaleni zdroju: sipka vlevo v radce s napovedou; sbalene jen ikony (vybrany s cervenym rameckem).
+let srcCollapsed = false;
+function syncSrcCollapsed() {
+  document.body.classList.toggle('srcCollapsed', srcCollapsed);
+  document.getElementById('srcToggle').textContent = srcCollapsed ? '▸' : '▾';
+}
+document.getElementById('srcToggle').onclick = (e) => {
+  e.stopPropagation();
+  srcCollapsed = !srcCollapsed;
+  syncSrcCollapsed(); persistSoon();
+  log(srcCollapsed ? 'zdroje sbaleny (jen ikony)' : 'zdroje rozbaleny');
+};
+// Hlasitost streamu: funkcni, pamatuje se.
+let appVol = 80, appMuted = false;
+function applyVol() {
+  try {
+    video.volume = Math.max(0, Math.min(1, appVol / 100));
+    video.muted = appMuted;
+  } catch {}
+  const s = document.getElementById('volSlider'), v = document.getElementById('volVal'), ic = document.getElementById('volIco');
+  if (s) s.value = appVol;
+  if (v) v.innerHTML = appVol + '&nbsp;%';
+  if (ic) ic.textContent = (appMuted || appVol === 0) ? '🔇' : '🔊';
+}
+document.getElementById('volSlider').addEventListener('input', (e) => {
+  appVol = Math.max(0, Math.min(100, +e.target.value || 0));
+  if (appVol > 0) appMuted = false;
+  applyVol(); persistSoon();
+});
+document.getElementById('volSlider').addEventListener('change', () => log('hlasitost: ' + appVol + ' %'));
+document.getElementById('volIco').onclick = () => {
+  if (appMuted || appVol === 0) { appMuted = false; if (appVol === 0) appVol = 80; }
+  else appMuted = true;
+  applyVol(); persistSoon();
+  log(appMuted ? 'ztlumeno' : 'hlasitost: ' + appVol + ' %');
+};
 document.getElementById('btnHelp').onmouseenter = (e) => {
   const pop = document.getElementById('helpPop');
   if (!pop) return;
@@ -295,7 +336,7 @@ document.addEventListener('keydown', (e) => {
   if (tag === 'button') return;
   if (e.key === ' ') { e.preventDefault(); if (currentStation()) togglePause(); }
   else if (e.key === 'f' || e.key === 'F') toggleMax();
-  else if (e.key === 'Escape') { document.body.classList.remove('rightOpen', 'leftOpen'); hideEpgPop(); closeLoginModal(); }
+  else if (e.key === 'Escape') { document.body.classList.remove('rightOpen', 'leftOpen'); hideEpgPop(); hideProgDetail(); closeLoginModal(); }
   else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     const list = channels();
     if (!list.length) return;
@@ -512,6 +553,7 @@ function syncEpgFilterClear() {
   if (fi && b) b.classList.toggle('on', !!fi.value);
 }
 function renderEpg(st) {
+  hideProgDetail();
   if (renderEpg._for !== st.name) { epgFilter = ''; const fi = document.getElementById('epgFilter'); if (fi) fi.value = ''; syncEpgFilterClear(); }
   renderEpg._for = st.name;
   const e = $('#epg'); e.innerHTML = '';
@@ -522,8 +564,8 @@ function renderEpg(st) {
   const q = normName(epgFilter);
   let lastDay = null;
   let shown = 0;
-  rows.forEach((p) => {
-    if (q && !normName(p.title).includes(q)) return;
+  const vis = rows.filter((p) => !q || normName(p.title).includes(q));
+  vis.forEach((p, idx) => {
     shown++;
     const day = p.day || (p.s ? new Date(p.s).toDateString() : null);
     if (day && day !== lastDay) {
@@ -537,17 +579,19 @@ function renderEpg(st) {
     const pctLive = p.s && p.e2 > p.s ? Math.max(0, Math.min(100, Math.round(((nowMs - p.s) / (p.e2 - p.s)) * 100))) : null;
     const d = document.createElement('div');
     d.className = 'ep' + (isNow ? ' now' : '');
-    d.title = p.desc || '';
+    // Bez nativniho title tooltipu — popis ukazuje plovouci detail.
     d.innerHTML = '<span class="t">' + p.t + '</span><span class="ti">' + p.title + (isNow ? '<span class="live">LIVE</span>' : '') + '</span>'
       + (isNow && pctLive !== null ? '<div class="epProg"><div style="width:' + pctLive + '%"></div></div>' : '');
     d.onclick = (ev) => {
       ev.stopPropagation();
       if (video.classList.contains('on')) {
-        if (paused) { paused = false; video.play().catch(() => {}); stage.classList.remove('paused'); persistSoon(); }
+        if (paused) { paused = false; resumeLive(); stage.classList.remove('paused'); persistSoon(); }
         return;
       }
       applySelection(); log('stanice → ' + st.name + ' („' + p.title + '“)');
     };
+    d.onmouseenter = () => scheduleProgDetail(d, st, vis, idx);
+    d.onmouseleave = () => hideProgDetail();
     e.appendChild(d);
   });
   if (!shown && rows.length) e.innerHTML = '<div class="emptyNote">Nic neodpovídá filtru.</div>';
@@ -608,7 +652,7 @@ function renderFavs() {
       const i = channels().findIndex((s) => s.name === st.name);
       if (i >= 0) {
         if (i === selIdx && video.classList.contains('on')) {
-          if (paused) { paused = false; video.play().catch(() => {}); stage.classList.remove('paused'); persistSoon(); log('▶ přehrávání'); }
+          if (paused) { paused = false; resumeLive(); stage.classList.remove('paused'); persistSoon(); log('▶ přehrávání'); }
           return;
         }
         selIdx = i; applySelection(); log('oblíbená → ' + st.name);
@@ -665,7 +709,7 @@ function renderStations() {
     r.onmouseleave = () => hideEpgPop();
     r.onclick = () => {
       if (i === selIdx && video.classList.contains('on')) {
-        if (paused) { paused = false; video.play().catch(() => {}); stage.classList.remove('paused'); persistSoon(); log('▶ přehrávání'); }
+        if (paused) { paused = false; resumeLive(); stage.classList.remove('paused'); persistSoon(); log('▶ přehrávání'); }
         return; // jiz hraje, nic neprepinat
       }
       selIdx = i; applySelection(); log('stanice → ' + st.name + ' („' + st.now + '“)');
@@ -769,10 +813,24 @@ stage.addEventListener('click', () => {
   if (suppressStageClick) { suppressStageClick = false; return; }
   stageClick();
 });
+function resumeLive() {
+  // Zive vysilani: po odpauzovani skocit rovnou na zivou hranu — neprehravat nacachovane,
+  // protoze kdyz cache dojde, stejne to skoci na aktualni stream.
+  try {
+    if (hls && hls.liveSyncPosition != null) video.currentTime = hls.liveSyncPosition;
+    else if (dashPlayer && typeof dashPlayer.duration === 'function') {
+      const d = dashPlayer.duration();
+      if (Number.isFinite(d) && d > 0) dashPlayer.seek(Math.max(0, d - 2));
+    } else if (video.seekable && video.seekable.length) {
+      video.currentTime = video.seekable.end(video.seekable.length - 1);
+    }
+  } catch {}
+  return video.play().catch(() => {});
+}
 function togglePause() {
   if (!currentStation() && !video.classList.contains('on')) return;
   paused = !paused;
-  if (video.classList.contains('on')) { if (paused) video.pause(); else video.play().catch(() => {}); }
+  if (video.classList.contains('on')) { if (paused) video.pause(); else resumeLive(); }
   stage.classList.toggle('paused', paused && video.classList.contains('on'));
   persistSoon();
   log(paused ? '⏸ pauza' : '▶ přehrávání');
@@ -787,7 +845,43 @@ async function toggleMax() {
 
 // panely se vysouvaji priblizenim mysi k okraji (zadna madla)
 let hideT = null;
+/* Detail pořadu: hover nad pořadem v levém menu → plovoucí okno VPRAVO od menu (nic nepřekrývá),
+   celé v obrazovce bez scrollbarů, myš se dovnitř nedostane (pointer-events:none v CSS). */
+let progDetailT = null;
+function scheduleProgDetail(row, st, vis, idx) {
+  hideProgDetail();
+  progDetailT = setTimeout(() => showProgDetail(row, st, vis, idx), 300);
+}
+function hideProgDetail() {
+  clearTimeout(progDetailT); progDetailT = null;
+  document.getElementById('progDetail').classList.remove('on');
+}
+function showProgDetail(row, st, vis, idx) {
+  const p = vis[idx]; if (!p) return;
+  const nowMs = Date.now();
+  const isNow = p.s ? (p.s <= nowMs && nowMs <= p.e2) : false;
+  const pct = p.s && p.e2 > p.s ? Math.max(0, Math.min(100, Math.round(((nowMs - p.s) / (p.e2 - p.s)) * 100))) : null;
+  const img = p.img || st.logo || null;
+  const imgEl = document.getElementById('pdImg');
+  if (img) { imgEl.src = img; imgEl.style.display = ''; } else { imgEl.removeAttribute('src'); imgEl.style.display = 'none'; }
+  document.getElementById('pdTitle').textContent = p.title;
+  const srcName = (SOURCES.find((s) => s.id === curSrc) || {}).name || curSrc;
+  document.getElementById('pdMeta').textContent = st.name + ' · ' + srcName;
+  document.getElementById('pdTime').innerHTML = p.t + (p.e ? ' – ' + p.e : '') + (isNow ? '<span class="live">ŽIVĚ</span>' : '');
+  const bar = document.getElementById('pdBar');
+  if (isNow && pct !== null) { bar.style.display = ''; document.getElementById('pdBarFill').style.width = pct + '%'; }
+  else bar.style.display = 'none';
+  document.getElementById('pdDesc').textContent = p.desc || 'Bez popisu.';
+  const pop = document.getElementById('progDetail');
+  pop.classList.add('on');
+  const panelW = document.getElementById('panelL').offsetWidth || 310;
+  pop.style.left = (panelW + 12) + 'px';
+  const r = row.getBoundingClientRect();
+  const ph = pop.offsetHeight || 300;
+  pop.style.top = Math.max(8, Math.min(r.top - 30, window.innerHeight - ph - 8)) + 'px';
+}
 function scheduleClose() {
+  hideProgDetail();
   if (!currentStation() && document.body.classList.contains('rightOpen') && !document.body.classList.contains('leftOpen')) return; // pripnute vpravo
   clearTimeout(hideT);
   hideT = setTimeout(() => {
@@ -795,7 +889,9 @@ function scheduleClose() {
     document.body.classList.remove('rightOpen', 'leftOpen');
   }, 350);
 }
+let lastMX = -1; // posledni znama poloha mysi (pro rozhodnuti po startu)
 document.addEventListener('mousemove', (e) => {
+  lastMX = e.clientX;
   if (e.clientX >= window.innerWidth - 24) { clearTimeout(hideT); document.body.classList.add('rightOpen'); }
   // Levy panel jen kdyz je pro stanici program — bez dat se vubec neotevira.
   else if (e.clientX <= 24 && currentStation() && epgRowsFor(currentStation()).length) { clearTimeout(hideT); document.body.classList.add('leftOpen'); }
@@ -843,6 +939,15 @@ document.addEventListener('mousemove', (e) => {
 })();
 $('#panelR').addEventListener('mouseleave', scheduleClose);
 $('#panelL').addEventListener('mouseleave', scheduleClose);
+// Mys rychle opustila okno/monitor: zadne mouseleave panelu neprijde, tak je zavrit rovnou.
+function closeAllPanels() {
+  clearTimeout(hideT);
+  if (!currentStation()) { document.body.classList.remove('leftOpen'); }
+  else document.body.classList.remove('rightOpen', 'leftOpen');
+  hideEpgPop();
+}
+document.documentElement.addEventListener('mouseleave', closeAllPanels);
+window.addEventListener('blur', closeAllPanels);
 $('#panelR').addEventListener('mouseenter', () => clearTimeout(hideT));
 $('#panelL').addEventListener('mouseenter', () => clearTimeout(hideT));
 // Interaktivni filtr stanic (bez diakritiky, okamzite zuzuje seznam) + krizek.
@@ -905,6 +1010,7 @@ function showEpgPop(row, st) {
   pop.style.top = Math.max(8, Math.min(r.top, window.innerHeight - ph - 8)) + 'px';
 }
 document.getElementById('stationList').addEventListener('scroll', hideEpgPop, { passive: true });
+document.getElementById('epg').addEventListener('scroll', hideProgDetail, { passive: true });
 
 // ---------- oblibene drag & drop ----------
 let dragEl = null, dragName = '', dragHole = null, dragSX = 0, dragSY = 0, dragging = false, suppressClick = false, dragFrom = -1;
@@ -936,17 +1042,17 @@ function favDragMove(e) {
   }
   dragEl.style.left = (e.clientX - dragEl.offsetWidth / 2) + 'px';
   dragEl.style.top = (e.clientY - dragEl.offsetHeight / 2) + 'px';
-  // Index vložení ve 2D na layoutu BEZ díry (jinak kmitá). Kurzor patří před první ikonu,
-  // která je buď výrazně pod ním, nebo ve stejném pásu vlevo od jejího středu.
+  // Index vložení podle HRAN (ne středů): díra uskakuje ihned, jak kurzor přejede hranu ikony.
+  // Měří se na layoutu BEZ díry (jinak by se díra a ikony přetahovaly o pozici a vše kmitalo).
   const w = document.querySelector('#favs');
   dragHole.remove();
   const items = [...w.querySelectorAll('.fav')];
   let idx = items.length;
   for (let k = 0; k < items.length; k++) {
     const r = items[k].getBoundingClientRect();
-    const midX = r.left + r.width * 0.5, midY = r.top + r.height * 0.5, tol = r.height * 0.3;
-    if (e.clientY < midY - tol) { idx = k; break; }
-    if (Math.abs(e.clientY - midY) <= tol && e.clientX < midX) { idx = k; break; }
+    const inBand = e.clientY >= r.top - 2 && e.clientY <= r.bottom + 2;
+    if (!inBand) { if (e.clientY < r.top) { idx = k; break; } continue; }
+    if (e.clientX < r.right - 2) { idx = k; break; }
   }
   w.insertBefore(dragHole, idx < items.length ? items[idx] : null);
 }
@@ -998,7 +1104,7 @@ async function sltvLoadEpg() {
         if (!s || !e2) continue;
         out[ch].push({
           t: String(ev.startTime || '').slice(11, 16), e: String(ev.endTime || '').slice(11, 16),
-          title: ev.title || '?', desc: (ev.description || '').slice(0, 220),
+          title: ev.title || '?', desc: (ev.description || '').slice(0, 500), img: null, // sltv v EPG obrazek nedava
           s, e2, day: new Date(s).toDateString(),
         });
       }
@@ -1243,7 +1349,8 @@ async function oneplayLoadEpg(token) {
       if (!s || !e2) continue;
       rows.push({
         t: String(it.startAtFormatted || '').slice(0, 5) || hhmm(s), e: hhmm(e2),
-        title: it.title || '?', desc: (it.description || '').slice(0, 220),
+        title: it.title || '?', desc: (it.description || '').slice(0, 500),
+        img: String(it.image || '').replace('{WIDTH}', '480').replace('{HEIGHT}', '320') || null,
         s, e2, day: new Date(s).toDateString(),
       });
     }
@@ -1534,6 +1641,9 @@ function snapshotState() {
     selBySrc: selBySrc && typeof selBySrc === 'object' ? { ...selBySrc } : {},
     paused: paused === true,
     favBySrc: { sltv: [...(favBySrc.sltv || [])], oneplay: [...(favBySrc.oneplay || [])] },
+    srcCollapsed: srcCollapsed === true,
+    vol: Math.max(0, Math.min(100, Math.round(appVol))),
+    muted: appMuted === true,
     everPlayed: everPlayed === true,
   };
 }
@@ -1595,6 +1705,12 @@ async function restore() {
   if (!SOURCES.find((s) => s.id === curSrc)) curSrc = 'sltv';
   // Sanitizace: z uloziste bereme jen tvarove platne hodnoty (poskozeny soubor nesmi nic smazat).
   paused = (await storeGet('paused')) === true;
+  // Sbaleni zdroju a hlasitost: trvale stavy jako vsechno ostatni.
+  srcCollapsed = (await storeGet('srcCollapsed')) === true;
+  syncSrcCollapsed();
+  appVol = Math.max(0, Math.min(100, +(await storeGet('vol')) || 80));
+  appMuted = (await storeGet('muted')) === true;
+  applyVol();
   everPlayed = (await storeGet('everPlayed')) === true;
   persistSoon(); // prepsat pripadne poskozeny soubor cistymi hodnotami
   authMeta = await storeGet('authMeta');
@@ -1734,6 +1850,11 @@ async function restore() {
   persistCache();
   await storeSet('authMeta', authMeta);
   renderAll();
+  // Po startu nezustava pripnuty panel, pokud na nem neni mys (updatePin ho pripnul pred nactenim stanic).
+  if (currentStation()) {
+    if (lastMX < window.innerWidth - 24) document.body.classList.remove('rightOpen');
+    if (lastMX > 24) document.body.classList.remove('leftOpen');
+  }
   // Autoplay: Oneplay URL se dohledava az pri prehrani (applySelection), staci opId.
   // Bez rucni zmeny behem bootu (jinak plati volba uzivatele, maybeAutoplay uz hral nebo hraje).
   const st = currentStation();
@@ -1752,7 +1873,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 window.addEventListener('beforeunload', () => { try { persistNow(); } catch {} storeFlush(); });
 
 sizeNoise();
-restoreWinGeometry();
+restoreWinGeometry().then(() => winInfoExfil()).catch(() => {});
 watchWinState();
 renderAll(); // okamzity prvni render: zadne prazdne sekce pred siti
 winInfoExfil();
