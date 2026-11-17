@@ -354,8 +354,41 @@ function humSchedule() {
   }, 4000 + Math.random() * 11000);
 }
 humSchedule();
+// Detekce probuzeni ze sleepu: casovy skok od posledniho tiku (+navrat site) spusti celkovou obnovu.
+let lastTick = Date.now(), recovering = false;
+async function wakeRecovery(reason) {
+  if (recovering || document.hidden || (!authMeta.sltv && !authMeta.oneplay)) return;
+  recovering = true;
+  try {
+    log('probuzení (' + reason + ') — obnovuji…');
+    const jobs = [];
+    if (authMeta.sltv && !authMeta.sltv.manual) jobs.push((async () => {
+      try {
+        const l = await withConnecting('sltv', sltvLoadChannels);
+        if (l.length) { liveChannels.sltv = l; log('SledováníTV: kanály dohrány po probuzení'); }
+      } catch (e) { log('obnova po probuzení (sltv): ' + (e?.message || e)); }
+    })());
+    if (authMeta.oneplay && authMeta.oneplay.logged) jobs.push((async () => {
+      try { await withConnecting('oneplay', () => oneplayEnsureEpg(true)); } catch (e) { log('obnova po probuzení (oneplay): ' + (e?.message || e)); }
+    })());
+    await Promise.all(jobs);
+    persistCache(); renderAll();
+    // Mrtvy stream po spanku: pokud se melo hrat, spustit znovu pres cerstva data.
+    const st = currentStation();
+    if (st && !paused && (st.streamUrl || st.opId)) {
+      if (st.opId) st.streamUrl = null; // op URL po vypadku expirovana → dohledat znovu
+      try { await applySelection(); log('stream obnoven po probuzení'); }
+      catch (e) { log('stream po probuzení selhal: ' + (e?.message || e)); renderIdle(); }
+    }
+  } finally { recovering = false; }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'hidden' && Date.now() - lastTick > 3 * 60e3) wakeRecovery('sleep');
+});
+window.addEventListener('online', () => wakeRecovery('online'));
 // Text poradu a progress se meni v case: kazdou minutu prekreslit, EPG dotahnout kazdych 15 minut.
 setInterval(() => {
+  lastTick = Date.now();
   if (document.hidden || !currentStation()) return;
   // Propadle Oneplay EPG dotahnout hned (necekat na 15min timer).
   if (!opEpgFresh()) oneplayEnsureEpg().then((n) => { if (n > 0) { persistCache(); renderAll(); } }).catch(() => {});
