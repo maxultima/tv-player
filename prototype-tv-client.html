@@ -169,7 +169,8 @@
     border:1px solid transparent; }
   .stRow:hover { background:var(--panel2); }
   .stRow.sel { background:var(--panel2); border-color:var(--acc); box-shadow:0 0 0 1px var(--acc) inset; }
-  .fav.sel { border-color:var(--acc); box-shadow:0 0 0 1px var(--acc) inset; }
+  /* Vybrana oblibena: ramecek s 1px mezerou od ikony (outline neukrajuje z dlazdice). */
+  .fav.sel { border-color:transparent; box-shadow:none; outline:2px solid var(--acc); outline-offset:1px; }
   .stIco { width:44px; height:44px; border-radius:11px; flex:none; display:flex; align-items:center;
     justify-content:center; font-weight:800; font-size:14px; color:#fff; }
   .stMid { flex:1; min-width:0; }

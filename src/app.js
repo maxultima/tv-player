@@ -396,7 +396,7 @@ function humSchedule() {
 }
 humSchedule();
 // Detekce probuzeni ze sleepu: casovy skok od posledniho tiku (+navrat site) spusti celkovou obnovu.
-let lastTick = Date.now(), recovering = false;
+let lastTick = Date.now(), recovering = false, lastStreamRetry = 0;
 async function wakeRecovery(reason) {
   if (recovering || document.hidden || (!authMeta.sltv && !authMeta.oneplay)) return;
   recovering = true;
@@ -428,7 +428,24 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('online', () => wakeRecovery('online'));
 // Text poradu a progress se meni v case: kazdou minutu prekreslit, EPG dotahnout kazdych 15 minut.
+// Hlidaci pes mrtveho streamu kazdych 10 s (minutovy prekres textu zustava na minute).
+// Ma se hrat, ale video stoji → znovu od zive hrany, dokud se sit nevrati.
+let lastWatchLog = 0;
 setInterval(() => {
+  if (document.hidden || paused || !video.classList.contains('on')) return;
+  if (video.paused && !video.ended && video.currentTime > 0) {
+    if (Date.now() - lastWatchLog > 60e3) { lastWatchLog = Date.now(); log('stream stojí — zkouším znovu od živé hrany…'); }
+    resumeLive();
+  } else if (video.networkState === 3 && Date.now() - lastStreamRetry > 5 * 60e3) {
+    // Visejici nacitani bez zdroje: cely reload (nove URL), max 1× za 5 minut proti toast spamu.
+    lastStreamRetry = Date.now();
+    log('stream bez zdroje — načítám znovu…');
+    applySelection().catch(() => {});
+  }
+}, 10000);
+setInterval(() => {
+  // Spánek bez změny viditelnosti (PC usnul s otevrenym oknem): velky skok casu = probuzeni.
+  if (!document.hidden && Date.now() - lastTick > 3 * 60e3) wakeRecovery('sleep-tick');
   lastTick = Date.now();
   if (document.hidden || !currentStation()) return;
   // Propadle Oneplay EPG dotahnout hned (necekat na 15min timer).
@@ -1704,6 +1721,11 @@ async function restore() {
   curSrc = (await storeGet('source')) || 'sltv';
   if (!SOURCES.find((s) => s.id === curSrc)) curSrc = 'sltv';
   // Sanitizace: z uloziste bereme jen tvarove platne hodnoty (poskozeny soubor nesmi nic smazat).
+  // Serial zarizeni musi byt i na disku (nejen v mirroru), jinak by se po ztrate profilu zbytecne parovalo znovu.
+  try {
+    const ser = await storeGet('sltv.serial');
+    if (ser) await storeSet('sltv.serial', ser);
+  } catch {}
   paused = (await storeGet('paused')) === true;
   // Sbaleni zdroju a hlasitost: trvale stavy jako vsechno ostatni.
   srcCollapsed = (await storeGet('srcCollapsed')) === true;

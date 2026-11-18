@@ -15,6 +15,8 @@ struct WinState {
     h: f64,
     fs: bool,
     #[serde(default)]
+    max: bool,
+    #[serde(default)]
     v: u32,
 }
 
@@ -39,6 +41,7 @@ fn migrate_v1(old: &serde_json::Value, scale: f64) -> Option<WinState> {
         w: w / scale,
         h: h / scale,
         fs: old.get("fs").and_then(|v| v.as_bool()).unwrap_or(false),
+        max: false,
         v: 2,
     })
 }
@@ -55,6 +58,7 @@ pub fn win_save(app: tauri::AppHandle) -> Result<(), String> {
     let p = w.outer_position().map_err(|e| e.to_string())?;
     let s = w.outer_size().map_err(|e| e.to_string())?;
     let fs = w.is_fullscreen().map_err(|e| e.to_string())?;
+    let max = w.is_maximized().map_err(|e| e.to_string())?;
     let scale = w.scale_factor().unwrap_or(1.0).max(0.01);
     let st = WinState {
         x: p.x as f64 / scale,
@@ -62,6 +66,7 @@ pub fn win_save(app: tauri::AppHandle) -> Result<(), String> {
         w: s.width as f64 / scale,
         h: s.height as f64 / scale,
         fs,
+        max,
         v: 2,
     };
     std::fs::write(
@@ -75,6 +80,7 @@ pub fn win_save(app: tauri::AppHandle) -> Result<(), String> {
 #[derive(Debug, PartialEq)]
 enum ApplyPlan {
     Fullscreen,
+    Maximized,
     Window { x: f64, y: f64, w: f64, h: f64 },
     ShowOnly,
 }
@@ -85,7 +91,7 @@ fn parse_v2(bytes: &[u8]) -> Option<WinState> {
         return None;
     }
     let st: WinState = serde_json::from_value(v).ok()?;
-    if st.fs || (st.w >= 400.0 && st.h >= 300.0) {
+    if st.fs || st.max || (st.w >= 400.0 && st.h >= 300.0) {
         return Some(st);
     }
     None
@@ -137,19 +143,37 @@ fn clamp_rect(x: f64, y: f64, w: f64, h: f64, mx: f64, my: f64, mw: f64, mh: f64
 }
 
 /// Najde monitor pod stredem okna (logicke souradnice) a oreze na nej.
+/// Logicke obdelniky vsech monitoru (x, y, w, h).
+fn logical_monitors(app: &tauri::AppHandle) -> Vec<(f64, f64, f64, f64)> {
+    app.available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|m| {
+            let s = m.scale_factor().max(0.01);
+            let mp = m.position();
+            let ms = m.size();
+            (
+                mp.x as f64 / s,
+                mp.y as f64 / s,
+                ms.width as f64 / s,
+                ms.height as f64 / s,
+            )
+        })
+        .collect()
+}
+
+/// Je bod na nejakem aktivnim monitoru? Zapamatovany monitor nemusi existovat
+/// (odpojeny) — pak se okno musi ukazat jinde, ne mimo obraz.
+fn has_monitor_at(app: &tauri::AppHandle, cx: f64, cy: f64) -> bool {
+    logical_monitors(app)
+        .iter()
+        .any(|(mx, my, mw, mh)| cx >= *mx && cx < mx + mw && cy >= *my && cy < my + mh)
+}
+
 fn clamp_to_monitor(app: &tauri::AppHandle, x: f64, y: f64, w: f64, h: f64) -> (f64, f64, f64, f64) {
     let cx = x + w / 2.0;
     let cy = y + h / 2.0;
-    for m in app.available_monitors().unwrap_or_default() {
-        let s = m.scale_factor().max(0.01);
-        let mp = m.position();
-        let ms = m.size();
-        let (mx, my, mw, mh) = (
-            mp.x as f64 / s,
-            mp.y as f64 / s,
-            ms.width as f64 / s,
-            ms.height as f64 / s,
-        );
+    for (mx, my, mw, mh) in logical_monitors(app) {
         if cx >= mx && cx < mx + mw && cy >= my && cy < my + mh {
             return clamp_rect(x, y, w, h, mx, my, mw, mh);
         }
@@ -160,6 +184,7 @@ fn clamp_to_monitor(app: &tauri::AppHandle, x: f64, y: f64, w: f64, h: f64) -> (
 fn apply_plan(st: Option<WinState>) -> ApplyPlan {
     match st {
         Some(s) if s.fs => ApplyPlan::Fullscreen,
+        Some(s) if s.max => ApplyPlan::Maximized,
         Some(s) => ApplyPlan::Window { x: s.x, y: s.y, w: s.w, h: s.h },
         None => ApplyPlan::ShowOnly,
     }
@@ -170,19 +195,42 @@ pub fn win_apply(app: tauri::AppHandle) -> Result<bool, String> {
     let w = app.get_webview_window("main").ok_or("zadne hlavni okno")?;
     let mut applied = false;
     if let Ok(bytes) = std::fs::read(winstate_path(&app)?) {
-        match apply_plan(load_state(Some(&bytes), &app)) {
+        let st = load_state(Some(&bytes), &app);
+        match apply_plan(st.clone()) {
             ApplyPlan::Fullscreen => {
                 let _ = w.set_fullscreen(true);
                 applied = true;
             }
+            ApplyPlan::Maximized => {
+                // Nejdriv presunout na spravny monitor (stred ulozene geometrie),
+                // jinak by se maximalizovalo na primarnim. Zapamatovany monitor
+                // nemusi existovat — pak zustat na primarnim (vzdy aktivni).
+                if let Some(s) = st {
+                    if has_monitor_at(&app, s.x + s.w / 2.0, s.y + s.h / 2.0) {
+                        let (nx, ny, _, _) = clamp_to_monitor(&app, s.x, s.y, s.w, s.h);
+                        let _ = w.set_position(tauri::Position::Logical(tauri::LogicalPosition { x: nx, y: ny }));
+                    }
+                }
+                let _ = w.maximize();
+                applied = true;
+            }
             ApplyPlan::Window { x, y, w: ww, h } => {
                 // Orezat na cilovy monitor, aby okno nikdy nepretekalo (zmena rozliseni/DPI).
-                let (nx, ny, nw, nh) = clamp_to_monitor(&app, x, y, ww, h);
-                let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize {
-                    width: nw,
-                    height: nh,
-                }));
-                let _ = w.set_position(tauri::Position::Logical(tauri::LogicalPosition { x: nx, y: ny }));
+                // Bez monitoru pod stredem: vycentrovat na primarni (vzdy aktivni).
+                if has_monitor_at(&app, x + ww / 2.0, y + h / 2.0) {
+                    let (nx, ny, nw, nh) = clamp_to_monitor(&app, x, y, ww, h);
+                    let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize {
+                        width: nw,
+                        height: nh,
+                    }));
+                    let _ = w.set_position(tauri::Position::Logical(tauri::LogicalPosition { x: nx, y: ny }));
+                } else {
+                    let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize {
+                        width: ww.min(1600.0),
+                        height: h.min(900.0),
+                    }));
+                    let _ = w.center();
+                }
                 applied = true;
             }
             ApplyPlan::ShowOnly => {}
@@ -203,6 +251,7 @@ mod tests {
             w,
             h,
             fs,
+            max: false,
             v: 2,
         })
         .unwrap()
@@ -253,13 +302,29 @@ mod tests {
             w: 800.0,
             h: 600.0,
             fs: false,
+            max: true,
             v: 2,
         };
         let back: WinState = serde_json::from_slice(&serde_json::to_vec(&st).unwrap()).unwrap();
         assert_eq!(
-            (back.x, back.y, back.w, back.h, back.fs, back.v),
-            (-5.5, 99.25, 800.0, 600.0, false, 2)
+            (back.x, back.y, back.w, back.h, back.fs, back.max, back.v),
+            (-5.5, 99.25, 800.0, 600.0, false, true, 2)
         );
+    }
+
+    #[test]
+    fn maximalizace_se_obnovi() {
+        let raw = serde_json::to_vec(&WinState {
+            x: 0.0,
+            y: 0.0,
+            w: 100.0,
+            h: 100.0,
+            fs: false,
+            max: true,
+            v: 2,
+        })
+        .unwrap();
+        assert_eq!(apply_plan(parse_v2(&raw)), ApplyPlan::Maximized);
     }
 
     #[test]
@@ -312,6 +377,7 @@ pub fn win_info(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
         "decorated": w.is_decorated().map_err(|e| e.to_string())?,
         "visible": w.is_visible().map_err(|e| e.to_string())?,
         "fullscreen": w.is_fullscreen().map_err(|e| e.to_string())?,
+        "maximized": w.is_maximized().map_err(|e| e.to_string())?, 
         "x": x, "y": y, "w": ww, "h": hh, "scale": scale, "monitors": mons,
     }))
 }

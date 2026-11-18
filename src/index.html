@@ -197,7 +197,8 @@
     border:1px solid transparent; }
   .stRow:hover { background:var(--panel2); }
   .stRow.sel { background:var(--panel2); border-color:var(--acc); box-shadow:0 0 0 1px var(--acc) inset; }
-  .fav.sel { border-color:var(--acc); box-shadow:0 0 0 1px var(--acc) inset; }
+  /* Vybrana oblibena: ramecek s 1px mezerou od ikony (outline neukrajuje z dlazdice). */
+  .fav.sel { border-color:transparent; box-shadow:none; outline:2px solid var(--acc); outline-offset:1px; }
   .stIco { width:44px; height:44px; border-radius:11px; flex:none; display:flex; align-items:center;
     justify-content:center; font-weight:800; font-size:14px; color:#fff; }
   .stIco.wide { width:62px; height:38px; background:#fff; border-radius:8px; }
@@ -246,7 +247,7 @@
 </style>
 </head>
 <body>
-  <div id="stage" title="klik = pauza, dvojklik = fullscreen">
+  <div id="stage">
     <canvas id="noise"></canvas>
     <div class="humbar" id="humbar1"></div>
     <div class="humbar" id="humbar2"></div>
