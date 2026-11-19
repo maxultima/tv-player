@@ -82,6 +82,59 @@ async fn http_get(url: String, user_agent: Option<String>) -> Result<String, Str
     Ok(text)
 }
 
+#[tauri::command]
+fn autostart_get() -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let out = std::process::Command::new("reg")
+            .args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run", "/v", "TVClient"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| e.to_string())?;
+        Ok(out.status.success())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(false)
+    }
+}
+
+#[tauri::command]
+fn autostart_set(enabled: bool) -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let key = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+        if enabled {
+            let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+            let val = format!("\"{}\"", exe.display());
+            let out = std::process::Command::new("reg")
+                .args(["add", key, "/v", "TVClient", "/t", "REG_SZ", "/d", &val, "/f"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !out.status.success() {
+                return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+            }
+            Ok(true)
+        } else {
+            let _ = std::process::Command::new("reg")
+                .args(["delete", key, "/v", "TVClient", "/f"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+            Ok(false)
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = enabled;
+        Ok(false)
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -102,7 +155,9 @@ fn main() {
             winstate::win_toggle_fullscreen,
             winstate::win_minimize,
             winstate::win_maximize_toggle,
-            winstate::win_close
+            winstate::win_close,
+            autostart_get,
+            autostart_set
         ])
         .setup(|app| {
             single_instance_setup(app);
@@ -113,6 +168,31 @@ fn main() {
             // Obnova geometrie rovnou v setupu (deterministicke, bez zavislosti na frontendu),
             // a pak kontrola viditelnosti na skutecne pozici.
             let _ = winstate::win_apply(app.handle().clone());
+            // Ukladani geometrie pri presunu/zmeně velikosti (misto casovace): throttled na ~1 s.
+            if let Some(w) = app.get_webview_window("main") {
+                let h = app.handle().clone();
+                let last = std::sync::Arc::new(std::sync::Mutex::new(std::time::Instant::now()));
+                w.on_window_event(move |ev| {
+                    use tauri::WindowEvent;
+                    if !matches!(ev, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
+                        return;
+                    }
+                    let save = match last.lock() {
+                        Ok(mut t) => {
+                            if t.elapsed() < std::time::Duration::from_secs(1) {
+                                false
+                            } else {
+                                *t = std::time::Instant::now();
+                                true
+                            }
+                        }
+                        Err(_) => true,
+                    };
+                    if save {
+                        let _ = winstate::win_save(h.clone());
+                    }
+                });
+            }
             state::ensure_window_visible(app);
             // Pojistka: okno se vzdy ukaze, i kdyby neco selhalo.
             let handle = app.handle().clone();

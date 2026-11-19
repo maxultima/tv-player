@@ -56,6 +56,10 @@
   #srcToggle { font-size:15px; }
   /* Sbaleno: jen ikony vedle sebe (vybrany ma cerveny ramecek), zadna tlacitka = zadne omylne odhlaseni. */
   body.srcCollapsed #sources .srcBtns { display:none; }
+  body.srcCollapsed #autostartRow { display:none; }
+  #autostartRow { display:flex; align-items:center; gap:8px; padding:6px 14px 2px; font-size:12px; color:var(--dim); cursor:pointer; user-select:none; }
+  #autostartRow:hover { color:var(--text); }
+  #autostartChk { accent-color:var(--acc); width:14px; height:14px; cursor:pointer; }
   #volRow { display:flex; gap:8px; align-items:center; padding:8px 14px 0; color:var(--dim); font-size:12px; }
   #volIco { cursor:pointer; user-select:none; font-size:14px; }
   #volSlider { flex:1; min-width:0; accent-color:var(--acc); cursor:pointer; }
@@ -170,7 +174,7 @@
   #stationList::-webkit-scrollbar-thumb, #epg::-webkit-scrollbar-thumb, #favs::-webkit-scrollbar-thumb { background:#3b4763; border-radius:99px; border:2px solid #141926; }
   #stationList::-webkit-scrollbar-thumb:hover, #epg::-webkit-scrollbar-thumb:hover { background:var(--acc); }
   #epgPop { position:fixed; z-index:90; width:270px; background:var(--panel2); border:1px solid var(--line);
-    border-radius:14px; padding:10px 12px; display:none; box-shadow:0 14px 44px rgba(0,0,0,.6); pointer-events:none; }
+    border-radius:14px; padding:10px 12px; display:none; box-shadow:0 14px 44px rgba(0,0,0,.6); }
   #epgPop.on { display:block; }
   #epgPop h4 { font-size:13px; margin-bottom:6px; }
   #epgPop .ep { padding:6px 8px; }
@@ -242,8 +246,58 @@
   .ep.now { background:#1e2b1e; }
   .ep .t { font-size:12px; color:var(--dim); width:48px; flex:none; white-space:nowrap; font-variant-numeric:tabular-nums; }
   .ep .ti { font-size:13px; flex:1; min-width:0; }
+  /* Naplanovane porady: vlastni sekce pod oblibenymi, bez scrollbarhu, roste s poctem. */
+  #remList { padding:2px 0 4px; }
+  .remRow { display:flex; gap:8px; align-items:baseline; padding:5px 14px; font-size:12px; border-radius:8px; }
+  .remRow .t { color:var(--dim); flex:none; font-variant-numeric:tabular-nums; }
+  .remRow .ti { flex:1; min-width:0; }
+  .remRow .ti small { display:block; color:var(--dim); font-size:11px; }
+  .remRow .rx { flex:none; cursor:pointer; color:var(--dim); font-size:14px; padding:0 2px; user-select:none; }
+  .remRow .rx:hover { color:var(--acc); }
+  .remRow.old { opacity:.65; }
+  .remRow .rp { flex:none; cursor:pointer; font-size:13px; padding:0 2px; user-select:none; opacity:.35; }
+  .remRow .rp:hover { opacity:.8; }
+  .remRow .rp.on { opacity:1; filter:drop-shadow(0 0 4px var(--acc)); }
+  .remRow.failed { background:rgba(225,29,72,.25); border:1px solid #e11d4daa; }
+  .remRow .rr { flex:none; cursor:pointer; font-size:16px; font-weight:700; padding:0 2px; user-select:none; color:var(--text); }
+  .remRow .t small { display:block; color:var(--dim); font-size:10px; }
+  /* Zvonecek pripominky: v dany cas aplikace sama prepne na porad. */
+  .ep .rem { flex:none; cursor:pointer; opacity:.3; font-size:14px; padding:0 2px; user-select:none; }
+  .ep .rem:hover { opacity:.8; }
+  .ep .rem.on { opacity:1; filter:drop-shadow(0 0 4px var(--acc)); }
   .ep.now .ti { font-weight:700; color:#86efac; }
   .live { font-size:10px; background:var(--acc); border-radius:5px; padding:1px 6px; margin-left:6px; color:#fff; }
+  /* ---------- bottom bar (now-playing EPG info + clock tab) ---------- */
+  #panelB { position:fixed; left:50%; bottom:0; z-index:48;
+    width:min(700px, calc(100vw - 32px));
+    background:rgba(20,25,38,.96); backdrop-filter:blur(10px);
+    border:1px solid var(--line); border-bottom:none; border-radius:14px 14px 0 0;
+    padding:14px 18px;
+    transform:translate(-50%, 125%); transition:transform .25s ease;
+    display:flex; align-items:center; gap:16px;
+    box-shadow:0 -12px 40px rgba(0,0,0,.6); }
+  body.bottomOpen #panelB { transform:translate(-50%, 0); }
+  #nbClockTab { position:absolute; right:16px; bottom:100%; margin-bottom:-1px;
+    background:rgba(20,25,38,.96); border:1px solid var(--line); border-bottom:none;
+    border-radius:10px 10px 0 0; padding:4px 12px;
+    font-size:14px; font-weight:700; letter-spacing:.5px; line-height:1.2;
+    font-variant-numeric:tabular-nums; color:var(--text); }
+  #nbMedia { flex:none; display:flex; align-items:center; justify-content:center; }
+  #nbImg { width:176px; height:98px; object-fit:cover; border-radius:10px;
+    border:1px solid var(--line); background:#0b0e14; display:none; }
+  #nbImg.logo { width:130px; height:84px; object-fit:contain; background:#fff; padding:8px; }
+  #nbBadge { width:98px; height:98px; border-radius:14px; display:flex; align-items:center;
+    justify-content:center; font-size:28px; font-weight:800; color:#fff;
+    box-shadow:0 6px 20px rgba(0,0,0,.45); }
+  #nbMain { flex:1; min-width:0; display:flex; flex-direction:column; gap:4px; }
+  #nbTop { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:12px; color:var(--dim); }
+  #nbStation { font-weight:700; color:var(--text); }
+  #nbTime { font-variant-numeric:tabular-nums; }
+  #nbTitle { font-size:19px; font-weight:700; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #nbBar { width:100%; height:5px; background:#00000088; border-radius:99px; overflow:hidden; margin:3px 0; }
+  #nbBarFill { height:100%; width:0%; background:linear-gradient(90deg,var(--acc),#fb7185); border-radius:99px; transition:width .4s; }
+  #nbDesc { font-size:13px; line-height:1.45; color:#cbd5e1;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
 </style>
 </head>
 <body>
@@ -292,7 +346,7 @@
   </div>
   <aside id="panelR">
     <div class="resizer" id="resR" title="Roztáhni myší"></div>
-    <div id="winBtns"><span class="grp"><span class="wbtn help" id="srcToggle" title="Sbalit/rozbalit zdroje">▾</span><span class="wbtn help" id="btnHelp" title="Nápověda k ovládání">?</span></span><span class="grp"><span class="wbtn" id="wMin" title="Minimalizovat">—</span><span class="wbtn" id="wMax" title="Maximalizovat">▢</span><span class="wbtn danger" id="wClose" title="Zavřít">✕</span></span></div>
+    <div id="winBtns"><span class="grp"><span class="wbtn help" id="srcToggle" title="Sbalit/rozbalit zdroje a konfiguraci">▾</span><span class="wbtn help" id="btnHelp" title="Nápověda k ovládání">?</span></span><span class="grp"><span class="wbtn" id="wMin" title="Minimalizovat">—</span><span class="wbtn" id="wMax" title="Maximalizovat">▢</span><span class="wbtn danger" id="wClose" title="Zavřít">✕</span></span></div>
     <div id="helpPop">
       <h4>Hlavní plocha</h4>
       <div class="hrow"><span class="hkeys"><kbd>Klik</kbd></span><span>pauza</span></div>
@@ -306,6 +360,8 @@
       <div class="hrow"><span class="hkeys"><kbd>okraj</kbd></span><span>otevřít</span></div>
       <div class="hrow"><span class="hkeys"><kbd>klik</kbd></span><span>přehrát stanici</span></div>
       <div class="hrow"><span class="hkeys"><kbd>filtr</kbd></span><span>hledat + křížek</span></div>
+      <h4>Dolní lišta</h4>
+      <div class="hrow"><span class="hkeys"><kbd>dolní okraj</kbd></span><span>detail běžícího pořadu + čas</span></div>
       <h4>Pravé menu</h4>
       <div class="hrow"><span class="hkeys"><kbd>okraj</kbd></span><span>otevřít</span></div>
       <div class="hrow"><span class="hkeys"><kbd>klik</kbd></span><span>přehrát stanici</span></div>
@@ -316,10 +372,13 @@
       <div class="hrow"><span class="hkeys">— ▢ ✕</span><span>okno</span></div>
     </div>
     <div id="sources"></div>
+    <label id="autostartRow" title="Automaticky spustit aplikaci po přihlášení do Windows"><input type="checkbox" id="autostartChk"><span>Spustit při startu</span></label>
     <div id="volRow"><span id="volIco" title="Hlasitost">🔊</span><input type="range" id="volSlider" min="0" max="100" value="80"><span id="volVal">80&nbsp;%</span></div>
     <div id="actLogWrap"><div id="actLog"></div></div>
     <hr class="sep" id="hrFavs" style="display:none">
     <div id="favs" style="display:none"></div>
+    <hr class="sep" id="hrRem" style="display:none">
+    <div id="remList" style="display:none"></div>
     <hr class="sep" id="hrStations" style="display:none">
     <div id="stationFilterWrap" style="display:none"><input id="stationFilter" placeholder="Hledat stanici…" autocomplete="off"><button id="stationFilterClear" title="Smazat text">×</button></div>
     <div id="stationList" style="display:none"></div>
@@ -332,6 +391,25 @@
     <div id="epgHead">Program</div>
     <div id="epgFilterWrap"><input id="epgFilter" placeholder="Hledat pořad…" autocomplete="off"><button id="epgFilterClear" title="Smazat text">×</button></div>
     <div id="epg"></div>
+  </aside>
+
+  <aside id="panelB">
+    <div id="nbClockTab">--:--:--</div>
+    <div id="nbMedia">
+      <img id="nbImg" alt="">
+      <div id="nbBadge">–</div>
+    </div>
+    <div id="nbMain">
+      <div id="nbTop">
+        <span id="nbStation">–</span>
+        <span id="nbSrc"></span>
+        <span class="live" id="nbLive" style="margin-left:0;display:none">ŽIVĚ</span>
+        <span id="nbTime"></span>
+      </div>
+      <div id="nbTitle">–</div>
+      <div id="nbBar" style="display:none"><div id="nbBarFill"></div></div>
+      <div id="nbDesc"></div>
+    </div>
   </aside>
 
   <script src="./app.js" type="module"></script>

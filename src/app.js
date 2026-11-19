@@ -223,6 +223,78 @@ function epgRowsFor(st) {
   if (st.opId) { const r = epgBySrc.oneplay[st.opId]; return r && r.length ? r : null; }
   return matchEpgRows(epgBySrc.sltv, st.name, st.eid);
 }
+/* Pripominky: zvonecek v radku poradu → v dany cas aplikace sama prepne (vcetne zdroje) a spusti.
+   Klic = zdroj|kanal|porad (stabilni id), prošle (po konci poradu) se mazeji. Muze jich byt vic. */
+let reminders = {};
+const chanKeyOf = (st) => st.eid || st.opId || st.name;
+const rowIdOf = (p) => p.id || (p.s ? 's' + p.s : 't' + p.t);
+const remKey = (src, st, p) => src + '|' + chanKeyOf(st) + '|' + rowIdOf(p);
+function toggleReminder(st, p) {
+  const k = remKey(curSrc, st, p);
+  if (reminders[k]) { delete reminders[k]; log('⏰ připomínka zrušena: ' + p.title); }
+  else {
+    reminders[k] = { src: curSrc, chan: chanKeyOf(st), id: rowIdOf(p), title: p.title, t: p.t, s: p.s || 0, e2: p.e2 || 0 };
+    log('⏰ připomenutí: ' + st.name + ' – ' + p.title + ' (' + p.t + ')');
+  }
+  persistSoon();
+  const cur = currentStation(); if (cur) renderEpg(cur);
+  renderReminders();
+}
+function cleanupReminders() {
+  // Prošlé bez špendlíku se mažou jako dřív; připnuté zůstávají k automatickému přeplánování.
+  const now = Date.now();
+  let drop = 0;
+  for (const k of Object.keys(reminders)) {
+    const r = reminders[k];
+    if (!r || !r.s) { delete reminders[k]; drop++; }
+    else if (r.e2 && r.e2 <= now && !r.pinned) { delete reminders[k]; drop++; }
+  }
+  if (drop) persistSoon();
+  return drop;
+}
+async function fireReminder(key, r) {
+  const wasPinned = !!r.pinned;
+  delete reminders[key]; persistSoon();
+  if (curSrc !== r.src) curSrc = r.src;
+  const list = channels();
+  const i = list.findIndex((s) => chanKeyOf(s) === r.chan);
+  if (i < 0) { log('⏰ stanice už není v seznamu: ' + r.title); renderAll(); return; }
+  selIdx = i;
+  renderAll();
+  try { await applySelection(true); } catch {} // tiche: pri neuspechu drzi 'on' a zkousi watchdog
+  toast('⏰ Přepínám na ' + list[i].name + ': ' + r.title, 8000);
+  log('⏰ čas vypršel → přepínám na ' + list[i].name + ': ' + r.title);
+  // Připnutý (seriál): hned naplánovat příští výskyt.
+  if (wasPinned) planNext(key, { ...r, pinned: true });
+}
+function checkReminders() {
+  const now = Date.now();
+  let changed = false;
+  for (const [k, r] of Object.entries(reminders)) {
+    if (!r || !r.s) { delete reminders[k]; changed = true; continue; }
+    if (r.e2 && r.e2 <= now) {
+      if (r.pinned && (!r.retryAt || now >= r.retryAt)) {
+        // Připnuté prošlé: zkusit automaticky přeplánovat (max 1× za hodinu).
+        r.retryAt = now + 360e4;
+        if (planNext(k, r)) changed = true;
+        else persistSoon();
+      } else if (!r.pinned) { delete reminders[k]; changed = true; }
+      continue;
+    }
+    if (r.s <= now && (!r.e2 || now < r.e2)) {
+      if (r.pinned) {
+        // Pripnuto: hrat jen kdyz bezi jiny stream; jinak jen preplanovat (zustava v planu).
+        const playing = video.classList.contains('on') && !paused && !video.paused && !video.ended;
+        if (playing) fireReminder(k, r).catch(() => {});
+        else planNext(k, { ...r, pinned: true });
+      } else {
+        // Jednorazove: spustit vzdy (i kdyz nic nehraje), pote zase odejit.
+        fireReminder(k, r).catch(() => {});
+      }
+    }
+  }
+  if (changed) { persistSoon(); const st = currentStation(); if (st) renderEpg(st); renderReminders(); }
+}
 function logEpgCoverage() {
   // Jen SledovaniTV: vola se po jeho EPG; Oneplay ma vlastni kontrolu po svem loadu (jen log, zadny toast).
   const all = channels().filter((st) => !st.opId);
@@ -292,6 +364,22 @@ document.getElementById('srcToggle').onclick = (e) => {
   syncSrcCollapsed(); persistSoon();
   log(srcCollapsed ? 'zdroje sbaleny (jen ikony)' : 'zdroje rozbaleny');
 };
+// Spustit pri startu Windows (HKCU\...\Run pres Rust backend).
+const autostartChk = document.getElementById('autostartChk');
+if (autostartChk && invoke) {
+  invoke('autostart_get').then((on) => { autostartChk.checked = !!on; }).catch(() => {});
+  autostartChk.addEventListener('change', async () => {
+    const want = autostartChk.checked;
+    try {
+      const res = await invoke('autostart_set', { enabled: want });
+      autostartChk.checked = !!res;
+      log('spustit při startu: ' + (res ? 'zapnuto' : 'vypnuto'));
+    } catch (err) {
+      autostartChk.checked = !want;
+      log('spustit při startu selhalo: ' + err);
+    }
+  });
+}
 // Hlasitost streamu: funkcni, pamatuje se.
 let appVol = 80, appMuted = false;
 function applyVol() {
@@ -336,16 +424,16 @@ document.addEventListener('keydown', (e) => {
   if (tag === 'button') return;
   if (e.key === ' ') { e.preventDefault(); if (currentStation()) togglePause(); }
   else if (e.key === 'f' || e.key === 'F') toggleMax();
-  else if (e.key === 'Escape') { document.body.classList.remove('rightOpen', 'leftOpen'); hideEpgPop(); hideProgDetail(); closeLoginModal(); }
+  else if (e.key === 'Escape') { cancelBottomClose(); document.body.classList.remove('rightOpen', 'leftOpen', 'bottomOpen'); hideEpgPop(); hideProgDetail(); closeLoginModal(); }
   else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     const list = channels();
     if (!list.length) return;
     selIdx = (selIdx + (e.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length;
-    applySelection();
+    applySelection(false);
   }
 });
 function watchWinState() {
-  setInterval(() => { if (!document.hidden) saveWinStateNow(); }, 5000);
+  // Bez intervalu: Rust uklada pri presunu/zmeně velikosti, tady jen pri zavreni/skryti.
   window.addEventListener('beforeunload', () => { try { invoke && invoke('win_save'); } catch {} });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveWinStateNow(); });
 }
@@ -396,10 +484,11 @@ function humSchedule() {
 }
 humSchedule();
 // Detekce probuzeni ze sleepu: casovy skok od posledniho tiku (+navrat site) spusti celkovou obnovu.
-let lastTick = Date.now(), recovering = false, lastStreamRetry = 0;
+let lastTick = Date.now(), recovering = false;
 async function wakeRecovery(reason) {
   if (recovering || document.hidden || (!authMeta.sltv && !authMeta.oneplay)) return;
   recovering = true;
+  diag('wakeRecovery(' + reason + ') start, online=' + navigator.onLine);
   try {
     log('probuzení (' + reason + ') — obnovuji…');
     const jobs = [];
@@ -414,40 +503,72 @@ async function wakeRecovery(reason) {
     })());
     await Promise.all(jobs);
     persistCache(); renderAll();
-    // Mrtvy stream po spanku: pokud se melo hrat, spustit znovu pres cerstva data.
+    // Mrtvy stream po spanku: tichy reload (drzi 'on' pro watchdog — hlasity applySelection
+    // by pri nedostupne siti zavolal renderIdle a uz by to nikdo nikdy nezkusil znovu).
     const st = currentStation();
+    diag('wakeRecovery: jobs hotovy, st=' + (st ? st.name : '-') + ' paused=' + paused);
     if (st && !paused && (st.streamUrl || st.opId)) {
-      if (st.opId) st.streamUrl = null; // op URL po vypadku expirovana → dohledat znovu
-      try { await applySelection(); log('stream obnoven po probuzení'); }
-      catch (e) { log('stream po probuzení selhal: ' + (e?.message || e)); renderIdle(); }
+      await reloadQuiet();
+      diag('wakeRecovery: reloadQuiet hotov');
+      log('stream po probuzení předán watchdogu');
     }
   } finally { recovering = false; }
 }
 document.addEventListener('visibilitychange', () => {
+  diag('visibility: ' + document.visibilityState + ' gap=' + Math.round((Date.now() - lastTick) / 1000) + 's');
   if (document.visibilityState !== 'hidden' && Date.now() - lastTick > 3 * 60e3) wakeRecovery('sleep');
 });
-window.addEventListener('online', () => wakeRecovery('online'));
+window.addEventListener('online', () => { diag('online event'); wakeRecovery('online'); });
+window.addEventListener('offline', () => { diag('offline event'); });
 // Text poradu a progress se meni v case: kazdou minutu prekreslit, EPG dotahnout kazdych 15 minut.
 // Hlidaci pes mrtveho streamu kazdych 10 s (minutovy prekres textu zustava na minute).
 // Ma se hrat, ale video stoji → znovu od zive hrany, dokud se sit nevrati.
-let lastWatchLog = 0;
+// DOCASNE: souborova diagnostika probuzeni (smazat po nalezu priciny)
+let diagLog = [];
+function diag(msg) {
+  try {
+    diagLog.push(new Date().toISOString().slice(11, 19) + ' ' + msg);
+    if (diagLog.length > 200) diagLog.splice(0, diagLog.length - 200);
+  } catch {}
+}
 setInterval(() => {
-  if (document.hidden || paused || !video.classList.contains('on')) return;
-  if (video.paused && !video.ended && video.currentTime > 0) {
-    if (Date.now() - lastWatchLog > 60e3) { lastWatchLog = Date.now(); log('stream stojí — zkouším znovu od živé hrany…'); }
-    resumeLive();
-  } else if (video.networkState === 3 && Date.now() - lastStreamRetry > 5 * 60e3) {
-    // Visejici nacitani bez zdroje: cely reload (nove URL), max 1× za 5 minut proti toast spamu.
-    lastStreamRetry = Date.now();
-    log('stream bez zdroje — načítám znovu…');
-    applySelection().catch(() => {});
-  }
+  if (!invoke) return;
+  try {
+    invoke('debug_dump', {
+      name: 'wake-diag.json',
+      content: JSON.stringify({
+        t: new Date().toISOString(), hidden: document.hidden, paused,
+        on: video.classList.contains('on'), vPaused: video.paused, ended: video.ended,
+        ct: Math.round((video.currentTime || 0) * 10) / 10, rs: video.readyState, ns: video.networkState,
+        online: navigator.onLine, err: video.error ? video.error.code : null,
+        log: diagLog.slice(-60),
+      }).slice(0, 20000),
+    }).catch(() => {});
+  } catch {}
+}, 30000);
+/* Zamer hrat (nezavisle na tride 'on'): watchdog zkousi, dokud skutecne nehraje.
+   Nastavuje se pri kazdem pokusu o prehrani, maze pri skutecnem hrani / pauze / odhlaseni. */
+let wantPlay = false;
+video.addEventListener('playing', () => { wantPlay = false; });
+// Hlidaci pes streamu je VYPNUTY na prani uzivatele — zustava jen kontrola pripominek.
+setInterval(() => {
+  checkReminders(); // pripominky i pri skrytem okne
 }, 10000);
 setInterval(() => {
   // Spánek bez změny viditelnosti (PC usnul s otevrenym oknem): velky skok casu = probuzeni.
   if (!document.hidden && Date.now() - lastTick > 3 * 60e3) wakeRecovery('sleep-tick');
   lastTick = Date.now();
   if (document.hidden || !currentStation()) return;
+  // Pauza bez obrazu (treba boot bez site): zkouset pripravit, dokud to nevyjde.
+  if (paused && !video.src) {
+    if (!window.__pausedImgRetry || Date.now() - window.__pausedImgRetry > 60000) {
+      window.__pausedImgRetry = Date.now();
+      const pst = currentStation();
+      if (pst) fetchStreamUrl(pst).then((url) => {
+        if (url && paused && !video.src) { video.src = url; noiseOn = false; syncStageVideo(); renderStage(); log('obraz připraven (pauza, dodatečně)'); }
+      }).catch(() => {});
+    }
+  }
   // Propadle Oneplay EPG dotahnout hned (necekat na 15min timer).
   if (!opEpgFresh()) oneplayEnsureEpg().then((n) => { if (n > 0) { persistCache(); renderAll(); } }).catch(() => {});
   renderStations(); renderStage();
@@ -492,9 +613,9 @@ function syncStageVideo() {
     }
   }
 }
-async function playStation(st) {
+async function playStation(st, quiet = true) {
   stopStream();
-  if (!st?.streamUrl) { renderIdle(); return; }
+  if (!st?.streamUrl) { if (!quiet) renderIdle(); else { video.classList.add('on'); syncStageVideo(); } return; }
   const url = st.streamUrl;
   try {
     if (st.drm && window.dashjs) {
@@ -511,7 +632,10 @@ async function playStation(st) {
       hls.loadSource(url);
       hls.attachMedia(video);
       hls.on(Hls.Events.ERROR, (_e, data) => {
-        if (data?.fatal) { log('HLS chyba: ' + (data.details || 'fatal')); toast('Stream se nepodařilo přehrát (' + (data.details || 'chyba') + ').'); renderIdle(); }
+        if (!data?.fatal) return;
+        log('HLS chyba: ' + (data.details || 'fatal'));
+        if (quiet) { video.classList.add('on'); syncStageVideo(); } // drzet pro watchdog retry
+        else { toast('Stream se nepodařilo přehrát (' + (data.details || 'chyba') + ').'); renderIdle(); }
       });
       if (!paused) video.play().catch(() => { paused = true; renderStage(); });
       log('HLS → ' + st.name);
@@ -527,8 +651,8 @@ async function playStation(st) {
     persistSoon();
   } catch (e) {
     log('prehravani selhalo: ' + e);
-    toast('Stream se nepodařilo přehrát. Zkouším znovu po kliknutí na stanici.');
-    renderIdle();
+    if (quiet) { video.classList.add('on'); syncStageVideo(); } // tichy rezim: drzet stav pro dalsi pokus
+    else { toast('Stream se nepodařilo přehrát. Zkouším znovu po kliknutí na stanici.'); renderIdle(); }
   }
 }
 function renderIdle() {
@@ -563,7 +687,48 @@ function renderStage() {
   const showPaused = paused && video.classList.contains('on');
   stage.classList.toggle('paused', showPaused);
   stage.classList.toggle('hasvideo', video.classList.contains('on'));
+  renderBottomBar(st);
 }
+function renderBottomBar(st) {
+  if (!st) { cancelBottomClose(); document.body.classList.remove('bottomOpen'); return; }
+  const rows = epgRowsFor(st) || [];
+  const nowMs = Date.now();
+  const p = rows.find((r) => r.s && r.s <= nowMs && nowMs <= r.e2) || null;
+  const li = liveInfo(st);
+  const title = (p && p.title) || li.now || 'Bez programu';
+  const pct = p && p.s && p.e2 > p.s
+    ? Math.max(0, Math.min(100, Math.round(((nowMs - p.s) / (p.e2 - p.s)) * 100)))
+    : (li.now ? li.pct : null);
+  const imgEl = $('#nbImg'), badgeEl = $('#nbBadge');
+  if (p && p.img) {
+    imgEl.src = p.img; imgEl.className = ''; imgEl.style.display = 'block';
+    badgeEl.style.display = 'none';
+  } else if (st.logo) {
+    imgEl.src = st.logo; imgEl.className = 'logo'; imgEl.style.display = 'block';
+    badgeEl.style.display = 'none';
+  } else {
+    imgEl.removeAttribute('src'); imgEl.style.display = 'none';
+    badgeEl.textContent = st.ini || ''; badgeEl.style.background = st.color || '#334155'; badgeEl.style.display = 'flex';
+  }
+  const srcName = (SOURCES.find((s) => s.id === curSrc) || {}).name || curSrc;
+  $('#nbStation').textContent = st.name;
+  $('#nbSrc').textContent = '· ' + srcName;
+  $('#nbLive').style.display = (p || li.now) ? '' : 'none';
+  $('#nbTime').textContent = p && p.t ? (p.t + (p.e ? ' – ' + p.e : '')) : '';
+  $('#nbTitle').textContent = title;
+  const bar = $('#nbBar');
+  if (pct !== null) { bar.style.display = ''; $('#nbBarFill').style.width = pct + '%'; }
+  else bar.style.display = 'none';
+  $('#nbDesc').textContent = (p && p.desc) || 'Bez popisu.';
+}
+function updateBottomClock() {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const c = document.getElementById('nbClockTab');
+  if (c) c.textContent = pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
+}
+updateBottomClock();
+setInterval(() => { if (!document.hidden) updateBottomClock(); }, 1000);
 let epgFilter = '';
 function syncEpgFilterClear() {
   const fi = document.getElementById('epgFilter'), b = document.getElementById('epgFilterClear');
@@ -597,15 +762,20 @@ function renderEpg(st) {
     const d = document.createElement('div');
     d.className = 'ep' + (isNow ? ' now' : '');
     // Bez nativniho title tooltipu — popis ukazuje plovouci detail.
+    const marked = !!reminders[remKey(curSrc, st, p)];
+    // Zvonecek jen u poradu, ktere jeste nezacaly (bezici/minule naplanovat nejde).
+    const upcoming = p.s && p.s > nowMs;
     d.innerHTML = '<span class="t">' + p.t + '</span><span class="ti">' + p.title + (isNow ? '<span class="live">LIVE</span>' : '') + '</span>'
+      + (upcoming ? '<span class="rem' + (marked ? ' on' : '') + '" title="Připomenout a v daný čas přepnout">⏰</span>' : '')
       + (isNow && pctLive !== null ? '<div class="epProg"><div style="width:' + pctLive + '%"></div></div>' : '');
+    if (upcoming) d.querySelector('.rem').onclick = (ev) => { ev.stopPropagation(); toggleReminder(st, p); };
     d.onclick = (ev) => {
       ev.stopPropagation();
       if (video.classList.contains('on')) {
         if (paused) { paused = false; resumeLive(); stage.classList.remove('paused'); persistSoon(); }
         return;
       }
-      applySelection(); log('stanice → ' + st.name + ' („' + p.title + '“)');
+      applySelection(false); log('stanice → ' + st.name + ' („' + p.title + '“)');
     };
     d.onmouseenter = () => scheduleProgDetail(d, st, vis, idx);
     d.onmouseleave = () => hideProgDetail();
@@ -662,7 +832,7 @@ function renderFavs() {
     d.title = st.name + ' (podrž a táhni pro přeskládání)';
     d.addEventListener('pointerdown', (e) => favDragStart(e, d, favKey(st)));
     d.onmouseenter = () => scheduleEpgPop(d, st);
-    d.onmouseleave = () => hideEpgPop();
+    d.onmouseleave = () => hideEpgPopSoon();
     d.onclick = (ev) => {
       if (suppressClick) { suppressClick = false; return; }
       ev.stopPropagation();
@@ -672,7 +842,7 @@ function renderFavs() {
           if (paused) { paused = false; resumeLive(); stage.classList.remove('paused'); persistSoon(); log('▶ přehrávání'); }
           return;
         }
-        selIdx = i; applySelection(); log('oblíbená → ' + st.name);
+        selIdx = i; applySelection(false); log('oblíbená → ' + st.name);
       }
     };
     w.appendChild(d);
@@ -723,18 +893,123 @@ function renderStations() {
       log((fav ? '☆ odebráno z oblíbených: ' : '★ oblíbená: ') + st.name);
     };
     r.onmouseenter = () => scheduleEpgPop(r, st);
-    r.onmouseleave = () => hideEpgPop();
+    r.onmouseleave = () => hideEpgPopSoon();
     r.onclick = () => {
       if (i === selIdx && video.classList.contains('on')) {
         if (paused) { paused = false; resumeLive(); stage.classList.remove('paused'); persistSoon(); log('▶ přehrávání'); }
         return; // jiz hraje, nic neprepinat
       }
-      selIdx = i; applySelection(); log('stanice → ' + st.name + ' („' + st.now + '“)');
+      selIdx = i; applySelection(false); log('stanice → ' + st.name + ' („' + st.now + '“)');
     };
     w.appendChild(r);
   });
 }
-function renderAll() { renderSources(); renderFavs(); renderStations(); renderStage(); updatePin(); }
+function renderAll() { renderSources(); renderFavs(); renderReminders(); renderStations(); renderStage(); updatePin(); }
+const CZ_MONTHS = ['led', 'úno', 'bře', 'dub', 'kvě', 'čen', 'čec', 'srp', 'zář', 'říj', 'lis', 'pro'];
+function shortDate(ms) {
+  const d = new Date(ms);
+  return d.getDate() + '. ' + CZ_MONTHS[d.getMonth()];
+}
+// Najit pristi vysilani stejneho poradu na stejnem kanale (nejblizsi den, podobny cas).
+function findNextOccurrence(r) {
+  const list = liveChannels[r.src] || [];
+  const st = list.find((s) => chanKeyOf(s) === r.chan);
+  if (!st) return null;
+  const rows = epgRowsFor(st) || [];
+  const now = Date.now();
+  const orig = new Date(r.s);
+  const origMins = orig.getHours() * 60 + orig.getMinutes();
+  const cands = rows.filter((p) => p.s && p.s > now && (p.title === r.title || normName(p.title) === normName(r.title)));
+  if (!cands.length) return null;
+  const dayRank = (ms) => { const d = new Date(ms); return d.getFullYear() * 1000 + Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 864e5); };
+  cands.sort((a, b) => {
+    const da = dayRank(a.s), db = dayRank(b.s);
+    if (da !== db) return da - db;
+    const ta = new Date(a.s), tb = new Date(b.s);
+    return Math.abs(ta.getHours() * 60 + ta.getMinutes() - origMins) - Math.abs(tb.getHours() * 60 + tb.getMinutes() - origMins);
+  });
+  return cands[0];
+}
+// Automaticke preplanovani pripnuteho zaznamu (prošlý i právě spuštěný seriál).
+// Vrátí true, když se povedlo (starý záznam nahrazen novým).
+// Nenalezeno + EPG vůbec není (síť) → zkusit později; nenalezeno + EPG je → chyba na řádku, rozhodne uživatel.
+function epgAvailable() {
+  return Object.keys(epgBySrc.sltv).length > 0 || Object.keys(epgBySrc.oneplay).length > 0;
+}
+function planNext(key, r) {
+  const p = findNextOccurrence(r);
+  if (!p) {
+    if (!epgAvailable()) {
+      r.retryAt = Date.now() + 360e4; persistSoon();
+      log('⏰ EPG nedostupné — zkusím přeplánovat později: ' + r.title);
+      return false;
+    }
+    r.failed = true; delete r.retryAt; persistSoon(); renderReminders();
+    const cur = currentStation(); if (cur) renderEpg(cur);
+    log('⏰ pokračování nenalezeno: ' + r.title);
+    return false;
+  }
+  delete r.failed; delete r.retryAt;
+  delete reminders[key];
+  const nk = r.src + '|' + r.chan + '|' + (p.id || ('s' + p.s));
+  reminders[nk] = { src: r.src, chan: r.chan, id: p.id || ('s' + p.s), title: p.title, t: p.t, s: p.s, e2: p.e2, pinned: true, failed: false };
+  persistSoon(); renderReminders();
+  const cur = currentStation(); if (cur) renderEpg(cur);
+  toast('⏰ Přeplánováno na ' + p.t + ' (' + shortDate(p.s) + ')', 8000);
+  log('⏰ přeplánováno: ' + p.title + ' ' + p.t + ' ' + shortDate(p.s));
+  return true;
+}
+/* Naplanovane porady: vlastni sekce pod oblibenymi (oddelovac, bez scrollbarhu, roste s poctem).
+   Klik prepne stanici (hlasite, primá akce), krizek pripominku zrusi. */
+function renderReminders() {
+  const w = document.getElementById('remList'), hr = document.getElementById('hrRem');
+  if (!w) return;
+  const keys = Object.keys(reminders).sort((a, b) => (reminders[a].s || 0) - (reminders[b].s || 0));
+  const show = keys.length > 0;
+  w.style.display = show ? '' : 'none';
+  if (hr) hr.style.display = show ? '' : 'none';
+  if (!show) return;
+  w.innerHTML = '';
+  const todayStr = new Date().toDateString();
+  keys.forEach((k) => {
+    const r = reminders[k];
+    const old = r.e2 && r.e2 <= Date.now();
+    const stName = (() => {
+      for (const src of ['sltv', 'oneplay']) {
+        const f = (liveChannels[src] || []).find((s) => chanKeyOf(s) === r.chan);
+        if (f) return f.name;
+      }
+      return r.title;
+    })();
+    const dateHtml = (r.s && new Date(r.s).toDateString() !== todayStr) ? '<small>' + shortDate(r.s) + '</small>' : '';
+    const d = document.createElement('div');
+    d.className = 'remRow' + (old ? ' old' : '');
+    if (r.failed) d.className += ' failed';
+    d.innerHTML = '<span class="t">' + (r.t || '') + dateHtml + '</span><span class="ti">' + r.title + '<small>' + stName + '</small></span>'
+      + (r.failed ? '<span class="rr" title="Zkusit naplánovat znovu ručně">↻</span>' : '')
+      + '<span class="rp' + (r.pinned ? ' on' : '') + '" title="Připnout automatické plánování">📌</span>'
+      + '<span class="rx" title="Zrušit připomínku">×</span>';
+    if (r.failed) d.querySelector('.rr').onclick = (ev) => {
+      ev.stopPropagation();
+      if (!planNext(k, r)) toast('Podobný pořad v programu není.', 6000);
+    };
+    d.querySelector('.rp').onclick = (ev) => {
+      ev.stopPropagation();
+      r.pinned = !r.pinned;
+      delete r.retryAt;
+      persistSoon(); renderReminders();
+      log(r.pinned ? '📌 automatické plánování zapnuto: ' + r.title : '📌 automatické plánování vypnuto: ' + r.title);
+    };
+    // Klik na radek nic neprepina — jen krizek a spendlik.
+    d.querySelector('.rx').onclick = (ev) => {
+      ev.stopPropagation();
+      delete reminders[k]; persistSoon(); renderReminders();
+      const st = currentStation(); if (st) renderEpg(st);
+      log('⏰ připomínka zrušena: ' + r.title);
+    };
+    w.appendChild(d);
+  });
+}
 // Bez beziciho kanalu je prave menu vzdy vysunute.
 function updatePin() {
   if (!currentStation()) {
@@ -742,12 +1017,26 @@ function updatePin() {
     document.body.classList.remove('leftOpen');
   }
 }
-async function applySelection() {
+async function reloadQuiet() {
+  // Tichy cely reload (nova hls instance = novy odhad rychlosti): kdyz je kvalita
+  // otravena po spanku/vypadku. Ticho, aby watchdog pri mrtve siti nespamoval.
+  const st = currentStation();
+  if (!st || paused) return;
+  try {
+    if (st.opId) st.streamUrl = null; // op URL po vypadku expirovana → dohledat znovu v applySelection
+    else await fetchStreamUrl(st); // sltv manifesty expiruji: cerstve URL z playlistu
+    await applySelection(true);
+  } catch {}
+}
+/* QUIET JE DEFAULT: automaticke prehrani (boot, probuzeni, pripominka, watchdog) nesmi nikdy
+   volat renderIdle ani toast — jinak by shodilo priznak 'on' a uz by to nikdo nezkusil znovu.
+   Hlasite (false) jen po prime akci uzivatele (klik/klavesa/login). */
+async function applySelection(quiet = true) {
   paused = false;
   const st = currentStation();
   if (st) selBySrc[curSrc] = st.name;
   renderFavs(); renderStations(); renderStage();
-  if (!st) { renderIdle(); persistSoon(); return; }
+  if (!st) { wantPlay = false; renderIdle(); persistSoon(); return; }
   if (st.locked) {
     toast(st.noAccess ? 'Stanice není ve vašem balíčku.' : 'Stanice je uzamčena (rodičovský zámek).', 6000);
     log('zamčená stanice: ' + st.name);
@@ -764,12 +1053,13 @@ async function applySelection() {
       persistCache();
       renderStations(); renderStage();
     } catch (e) {
-      toast('Stream se nepodařilo načíst: ' + (e?.message || e));
+      if (!quiet) toast('Stream se nepodařilo načíst: ' + (e?.message || e));
       log('oneplay play: ' + (e?.message || e));
       return;
     }
   }
-  playStation(st); persistSoon();
+  wantPlay = true;
+  playStation(st, quiet); persistSoon();
 }
 function switchSource(id) {
   const old = currentStation();
@@ -784,7 +1074,7 @@ function switchSource(id) {
   renderAll();
   // Pres applySelection: umi i zamcene stanice a lazy Oneplay URL (playStation by bez URL jen sumel).
   const st = currentStation();
-  if (st) applySelection(); else renderIdle();
+  if (st) applySelection(false); else { wantPlay = false; renderIdle(); }
   persistSoon();
 }
 async function logoutSource(id) {
@@ -792,7 +1082,7 @@ async function logoutSource(id) {
   liveChannels[id] = [];
   // Jen sltv klice ('op:' patri Oneplay a zustavaji).
   if (id === 'sltv') epgBySrc.sltv = {};
-  if (id === curSrc) { selIdx = 0; renderIdle(); }
+  if (id === curSrc) { selIdx = 0; wantPlay = false; renderIdle(); }
   try { await vaultClear(id + '.'); } catch (e) { log('trezor: ' + e); }
   persistSoon(); persistCache();
   await storeSet('authMeta', authMeta);
@@ -830,7 +1120,34 @@ stage.addEventListener('click', () => {
   if (suppressStageClick) { suppressStageClick = false; return; }
   stageClick();
 });
-function resumeLive() {
+async function fetchStreamUrl(st) {
+  // Dohleda cerstve stream URL bez prehrani (priprava obrazu v pauze, retry).
+  // Vrati url nebo null. Pro oba zdroje stejne.
+  if (!st) return null;
+  try {
+    if (st.opId) {
+      const t = await vaultGet('oneplay.token');
+      if (!t) return null;
+      const m = await oneplayPlayUrl(t, st.opId);
+      const url = m.hls || m.dash || m.dashDrm;
+      if (url) { st.streamUrl = url; if (m.dashDrm && !m.hls) st.drm = m.drm; return url; }
+      return null;
+    }
+    if (st.eid && authMeta.sltv && !authMeta.sltv.manual) {
+      const fresh = await sltvLoadPlaylist().catch(() => []);
+      const f = fresh.find((s) => s.eid === st.eid);
+      if (f && f.streamUrl) { st.streamUrl = f.streamUrl; return f.streamUrl; }
+    }
+  } catch (e) { log('URL se nepodařilo dohledat: ' + (e?.message || e)); }
+  return st.streamUrl || null;
+}
+async function resumeLive() {
+  // Bez zdroje (pauza z bootu bez URL) nejde seeknout — dohledat a plne prehrat.
+  if (!video.src && currentStation()) {
+    await fetchStreamUrl(currentStation());
+    try { await applySelection(false); } catch {}
+    return;
+  }
   // Zive vysilani: po odpauzovani skocit rovnou na zivou hranu — neprehravat nacachovane,
   // protoze kdyz cache dojde, stejne to skoci na aktualni stream.
   try {
@@ -847,7 +1164,7 @@ function resumeLive() {
 function togglePause() {
   if (!currentStation() && !video.classList.contains('on')) return;
   paused = !paused;
-  if (video.classList.contains('on')) { if (paused) video.pause(); else resumeLive(); }
+  if (video.classList.contains('on')) { if (paused) { wantPlay = false; video.pause(); } else resumeLive(); }
   stage.classList.toggle('paused', paused && video.classList.contains('on'));
   persistSoon();
   log(paused ? '⏸ pauza' : '▶ přehrávání');
@@ -907,11 +1224,32 @@ function scheduleClose() {
   }, 350);
 }
 let lastMX = -1; // posledni znama poloha mysi (pro rozhodnuti po startu)
+let bottomHideT = null;
+function scheduleBottomClose() {
+  if (bottomHideT) return;
+  bottomHideT = setTimeout(() => { bottomHideT = null; document.body.classList.remove('bottomOpen'); }, 350);
+}
+function cancelBottomClose() {
+  if (bottomHideT) { clearTimeout(bottomHideT); bottomHideT = null; }
+}
 document.addEventListener('mousemove', (e) => {
   lastMX = e.clientX;
   if (e.clientX >= window.innerWidth - 24) { clearTimeout(hideT); document.body.classList.add('rightOpen'); }
   // Levy panel jen kdyz je pro stanici program — bez dat se vubec neotevira.
   else if (e.clientX <= 24 && currentStation() && epgRowsFor(currentStation()).length) { clearTimeout(hideT); document.body.classList.add('leftOpen'); }
+  // Dolni lista s informacemi o bezicim poradu: drzi se otevrena v cele sve vysce bez ohledu na osu X.
+  const st = currentStation();
+  if (st) {
+    if (e.clientY >= window.innerHeight - 24) {
+      cancelBottomClose(); updateBottomClock(); renderBottomBar(st);
+      document.body.classList.add('bottomOpen');
+    } else if (document.body.classList.contains('bottomOpen')) {
+      const pb = document.getElementById('panelB'), tab = document.getElementById('nbClockTab');
+      const h = (pb ? pb.offsetHeight : 130) + (tab ? tab.offsetHeight : 28);
+      if (e.clientY >= window.innerHeight - h) cancelBottomClose();
+      else scheduleBottomClose();
+    }
+  }
 });
 (function () {
   const savedR = +(localStorage.getItem('tvklient.panelW_R') || 0);
@@ -959,8 +1297,9 @@ $('#panelL').addEventListener('mouseleave', scheduleClose);
 // Mys rychle opustila okno/monitor: zadne mouseleave panelu neprijde, tak je zavrit rovnou.
 function closeAllPanels() {
   clearTimeout(hideT);
-  if (!currentStation()) { document.body.classList.remove('leftOpen'); }
-  else document.body.classList.remove('rightOpen', 'leftOpen');
+  cancelBottomClose();
+  if (!currentStation()) { document.body.classList.remove('leftOpen', 'bottomOpen'); }
+  else document.body.classList.remove('rightOpen', 'leftOpen', 'bottomOpen');
   hideEpgPop();
 }
 document.documentElement.addEventListener('mouseleave', closeAllPanels);
@@ -994,29 +1333,54 @@ function epgRowsOf(st) {
   };
   const isLive = (p) => p.s ? (p.s <= nowMs && nowMs <= p.e2) : !!p.now;
   const live = epgRowsFor(st);
-  if (live && live.length) return live.slice(0, 6).map((p) => ({ t: p.t, title: p.title, now: isLive(p), pct: pctOf(p) }));
-  return (st.epg || []).slice(0, 6).map((p) => ({ t: p.t, title: p.title, now: false, pct: null }));
+  if (live && live.length) {
+    // Od beziciho/nadchazejiciho poradu (ne prvnich 6 dnem — ty uz bezely).
+    let from = live.findIndex((p) => (p.s && p.e2 ? p.e2 > nowMs : true));
+    if (from < 0) from = 0;
+    return live.slice(from, from + 6).map((p) => ({ id: p.id || null, s: p.s || 0, e2: p.e2 || 0, t: p.t, title: p.title, now: isLive(p), pct: pctOf(p) }));
+  }
+  return (st.epg || []).slice(0, 6).map((p) => ({ id: null, s: 0, e2: 0, t: p.t, title: p.title, now: false, pct: null }));
 }
 function scheduleEpgPop(row, st) {
   hideEpgPop();
   epgPopT = setTimeout(() => showEpgPop(row, st), 600);
 }
+let epgPopHideT = null;
 function hideEpgPop() {
   clearTimeout(epgPopT); epgPopT = null;
+  clearTimeout(epgPopHideT); epgPopHideT = null;
   const pop = document.getElementById('epgPop');
   if (pop) pop.classList.remove('on');
 }
+// Prechod mysi z radku do popupu: nezavirat hned, pockat (popup je dosazitelny).
+function hideEpgPopSoon() {
+  clearTimeout(epgPopT); epgPopT = null;
+  clearTimeout(epgPopHideT);
+  epgPopHideT = setTimeout(() => hideEpgPop(), 350);
+}
+// Mys je v popupu = porad v pravem menu: panel se nesmi zavrit.
+document.getElementById('epgPop').addEventListener('mouseenter', () => { clearTimeout(epgPopHideT); clearTimeout(hideT); });
+document.getElementById('epgPop').addEventListener('mouseleave', () => { hideEpgPop(); scheduleClose(); });
 function showEpgPop(row, st) {
   const pop = document.getElementById('epgPop');
   const list = document.getElementById('epgPopList');
   if (!pop || !list) return;
   document.getElementById('epgPopHead').textContent = st.name;
   list.innerHTML = '';
+  const nowMs = Date.now();
   epgRowsOf(st).forEach((p) => {
     const d = document.createElement('div');
     d.className = 'ep' + (p.now ? ' now' : '');
+    const marked = !!reminders[remKey(curSrc, st, p)];
+    const upcoming = p.s && p.s > nowMs;
     d.innerHTML = '<span class="t">' + (p.t || '') + '</span><span class="ti">' + p.title + (p.now ? '<span class="live">LIVE</span>' : '') + '</span>'
+      + (upcoming ? '<span class="rem' + (marked ? ' on' : '') + '" title="Připomenout a v daný čas přepnout">⏰</span>' : '')
       + (p.now && p.pct !== null ? '<div class="epProg"><div style="width:' + p.pct + '%"></div></div>' : '');
+    if (upcoming) d.querySelector('.rem').onclick = (ev) => {
+      ev.stopPropagation();
+      toggleReminder(st, p);
+      ev.target.classList.toggle('on', !!reminders[remKey(curSrc, st, p)]);
+    };
     list.appendChild(d);
   });
   pop.classList.add('on');
@@ -1120,6 +1484,7 @@ async function sltvLoadEpg() {
         const e2 = new Date(String(ev.endTime || '').replace(' ', 'T')).getTime();
         if (!s || !e2) continue;
         out[ch].push({
+          id: ev.eventId !== undefined ? String(ev.eventId) : null,
           t: String(ev.startTime || '').slice(11, 16), e: String(ev.endTime || '').slice(11, 16),
           title: ev.title || '?', desc: (ev.description || '').slice(0, 500), img: null, // sltv v EPG obrazek nedava
           s, e2, day: new Date(s).toDateString(),
@@ -1365,6 +1730,7 @@ async function oneplayLoadEpg(token) {
       const s = new Date(it.startAt).getTime(), e2 = new Date(it.endAt).getTime();
       if (!s || !e2) continue;
       rows.push({
+        id: it.id !== undefined && it.id !== null ? String(it.id) : null,
         t: String(it.startAtFormatted || '').slice(0, 5) || hhmm(s), e: hhmm(e2),
         title: it.title || '?', desc: (it.description || '').slice(0, 500),
         img: String(it.image || '').replace('{WIDTH}', '480').replace('{HEIGHT}', '320') || null,
@@ -1505,7 +1871,7 @@ async function pickOneplayProfile(p) {
   pendingOneplay = null;
   if (curSrc !== 'oneplay') { curSrc = 'oneplay'; selIdx = 0; }
   renderAll();
-  applySelection();
+  applySelection(false);
   log('Oneplay přihlášeno · profil ' + p.name + ' (' + list.length + ' kanálů)');
 }
 
@@ -1626,7 +1992,7 @@ async function doSltvLogin(user, pass) {
   paused = false;
   renderAll();
   const st = currentStation();
-  if (st) playStation(st);
+  if (st) playStation(st, false);
   log('SledováníTV přihlášeno (' + list.length + ' stanic)');
 }
 // Jednorazova migrace: co drive skoncilo v docasnem localStorage fallbacku,
@@ -1661,6 +2027,7 @@ function snapshotState() {
     srcCollapsed: srcCollapsed === true,
     vol: Math.max(0, Math.min(100, Math.round(appVol))),
     muted: appMuted === true,
+    reminders: { ...reminders },
     everPlayed: everPlayed === true,
   };
 }
@@ -1726,6 +2093,15 @@ async function restore() {
     const ser = await storeGet('sltv.serial');
     if (ser) await storeSet('sltv.serial', ser);
   } catch {}
+  reminders = await storeGet('reminders');
+  if (!reminders || typeof reminders !== 'object' || Array.isArray(reminders)) reminders = {};
+  else {
+    for (const k of Object.keys(reminders)) {
+      const r = reminders[k];
+      if (!r || typeof r !== 'object' || typeof r.src !== 'string' || !r.s) delete reminders[k];
+    }
+  }
+  cleanupReminders();
   paused = (await storeGet('paused')) === true;
   // Sbaleni zdroju a hlasitost: trvale stavy jako vsechno ostatni.
   srcCollapsed = (await storeGet('srcCollapsed')) === true;
@@ -1782,10 +2158,10 @@ async function restore() {
     if (autoplayed || curSrc !== src) return;
     const st = currentStation();
     if (!st || (!st.streamUrl && !st.opId)) return;
+    // Pauza: nic nepoustet ani nemazat — obraz pripravi finalni boot blok (jinak by zustal sum).
+    if (paused) return;
     autoplayed = true;
-    if (!paused) { try { await applySelection(); } catch {} }
-    else if (st.streamUrl) { video.src = st.streamUrl; video.classList.add('on'); noiseOn = false; syncStageVideo(); renderStage(); }
-    else renderIdle();
+    try { await applySelection(true); } catch {}
   }
   // Tiche obnoveni sezeni (trezor): oba zdroje paralelne, kazdy s vlastnim stavem pripojovani.
   async function bootSltv() {
@@ -1822,7 +2198,15 @@ async function restore() {
   async function bootOneplay() {
     // Pri startu zadny novy login — staci ulozena kopie, prihlaseni probehne lenive pri prvnim pouziti.
     // Nove sezeni jen kdyz neni vubec co ukazat.
-    const wasOpLogged = !!(authMeta.oneplay && authMeta.oneplay.logged);
+    // Probuzení po dlouhé odmlce (PC spal / aplikace byla vypnuta): pri prvnim pokusu nemusi
+  // byt sit nahore, tak to za 30 s zkusi znovu — kdyz selze, preplánují se pripomínky,
+  // aby se to stejně vyriešilo.
+  // Po vypnuti/odmlce: naplanovane pripinute je treba obslouzit ihned (jestlize jeste bezi)
+  // ci preplanovat. Bootova akce applySelection(true), takze v tichém rezimu.
+  const wokeUp = Date.now() - lastTick > 3 * 60e3;
+  if (wokeUp) setTimeout(() => { if (!recovering) wakeRecovery('wake-retry'); }, 30000);
+  lastTick = Date.now();
+  const wasOpLogged = !!(authMeta.oneplay && authMeta.oneplay.logged);
     if (!liveChannels.oneplay.length) {
       try {
         const ok = await withConnecting('oneplay', oneplaySilentLogin);
@@ -1881,9 +2265,19 @@ async function restore() {
   // Bez rucni zmeny behem bootu (jinak plati volba uzivatele, maybeAutoplay uz hral nebo hraje).
   const st = currentStation();
   const untouched = !autoplayed && selIdx === bootSelIdx && curSrc === bootSrc;
-  if (untouched && st && (st.streamUrl || st.opId) && !paused) applySelection();
+  if (untouched && st && (st.streamUrl || st.opId) && !paused) applySelection(true); // tiche: watchdog to pri neuspechu zkusi znovu
   else if (untouched && st?.streamUrl && paused) { video.src = st.streamUrl; video.classList.add('on'); noiseOn = false; syncStageVideo(); renderStage(); }
-  else if (!autoplayed) renderIdle();
+  else if (untouched && paused && st && !st.streamUrl && ((st.opId && authMeta.oneplay && authMeta.oneplay.logged) || (st.eid && authMeta.sltv && !authMeta.sltv.manual))) {
+    // Pauza bez URL (cache): dohledat URL a pripravit zmrazeny obraz, nehrat. Oba zdroje stejne.
+    video.classList.add('on'); syncStageVideo(); renderStage();
+    (async () => {
+      const url = await fetchStreamUrl(st);
+      if (url) { video.src = url; noiseOn = false; syncStageVideo(); renderStage(); log('obraz připraven (pauza)'); }
+      else log('obraz v pauze se nepodařilo připravit');
+    })().catch(() => {});
+  }
+  
+  else if (!autoplayed) { wantPlay = false; renderIdle(); }
 
   if (!authMeta.sltv && !authMeta.oneplay) {
     log('zadne uložené přihlášení — vyber si zdroj a klikni Přihlásit');

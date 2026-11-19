@@ -8,3 +8,4 @@
 - nove graficke prvky/dialogy pridane do aplikace vzdy prenes i do prototypu (vcetne demo dat); zmeny prototypu se do aplikace prenasi jen na vyzadani uzivatele
 - kdyz uzivatel pise seznam problemu, tyka se vzdy posledniho buildu, nezpochybnovat to zadnymi otazkami
 - nikdy nevytvarej redundantni/duplicitni soubory (zadne kopie binarek, zadne docasne soubory v projektu — diagnostika patri mimo projekt nebo se maze hned po pouziti)
+- automaticke prehrani (start, probuzeni, pripominka, hlidaci pes) je vzdy tiche: nikdy toast ani zahozeni stavu, aby to selhalo s moznosti retry; hlasite (toast + uklid) jen po prime akci uzivatele (klik, klavesa, dokonceny login)
