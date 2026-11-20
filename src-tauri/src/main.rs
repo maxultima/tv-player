@@ -37,6 +37,7 @@ fn single_instance_setup(app: &tauri::App) {
 }
 
 mod oneplay;
+mod recorder;
 mod state;
 mod vault;
 mod winstate;
@@ -80,6 +81,25 @@ async fn http_get(url: String, user_agent: Option<String>) -> Result<String, Str
         return Err(format!("HTTP {}: {}", status, &text[..text.len().min(300)]));
     }
     Ok(text)
+}
+
+#[tauri::command]
+async fn net_check() -> bool {
+    let Ok(client) = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+    else {
+        return false;
+    };
+    for url in [
+        "https://www.msftconnecttest.com/connecttest.txt",
+        "https://clients3.google.com/generate_204",
+    ] {
+        if client.head(url).send().await.is_ok() {
+            return true;
+        }
+    }
+    false
 }
 
 #[tauri::command]
@@ -157,7 +177,15 @@ fn main() {
             winstate::win_maximize_toggle,
             winstate::win_close,
             autostart_get,
-            autostart_set
+            autostart_set,
+            net_check,
+            recorder::rec_start,
+            recorder::rec_stop,
+            recorder::rec_status,
+            recorder::default_rec_dir,
+            recorder::pick_folder,
+            recorder::rec_encoders,
+            recorder::rec_transcode
         ])
         .setup(|app| {
             single_instance_setup(app);

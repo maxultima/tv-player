@@ -48,10 +48,121 @@
   /* Sbaleno: jen ikony vedle sebe (vybrany ma cerveny ramecek), zadna tlacitka = zadne omylne odhlaseni. */
   body.srcCollapsed #sources .srcBtns { display:none; }
   body.srcCollapsed #sources .srcCard { padding:10px; }
-  body.srcCollapsed #autostartRow { display:none; }
-  #autostartRow { display:flex; align-items:center; gap:8px; padding:6px 14px 2px; font-size:12px; color:var(--dim); cursor:pointer; user-select:none; }
+  body.srcCollapsed #genCfg, body.srcCollapsed #recCfg { display:none; }
+  .cfgGroup { margin:6px 14px 2px; padding:8px 10px; background:#0b0e1466; border:1px solid var(--line);
+    border-radius:10px; display:flex; flex-direction:column; gap:6px; font-size:11px; color:var(--dim); }
+  .cfgHead { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:1px;
+    color:#cbd5e1; display:flex; align-items:center; gap:5px; }
+  #autostartRow { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--dim); cursor:pointer; user-select:none; }
   #autostartRow:hover { color:var(--text); }
   #autostartChk { accent-color:var(--acc); width:14px; height:14px; cursor:pointer; }
+  /* ---------- recording settings (grouped card inside collapsible sources section) ---------- */
+  #recCfg .rcRow { display:flex; align-items:center; gap:6px; }
+  #recCfg .rcRow.top { align-items:flex-start; }
+  #recCfg .rcRow.top label { padding-top:5px; }
+  #recCfg .rcCol { flex:1; min-width:0; display:flex; flex-direction:column; gap:5px; }
+  #recCfg label { flex:none; white-space:nowrap; }
+  #recCfg input, #recCfg select { flex:1; min-width:0; background:#0b0e14; color:var(--text); border:1px solid var(--line);
+    border-radius:8px; padding:4px 8px; font-size:11px; font-family:inherit; }
+  #recCfg input[type=number] { flex:none; width:58px; text-align:right; font-variant-numeric:tabular-nums; }
+  #recCfg .rcBtn { flex:none; width:26px; height:24px; border:1px solid var(--line); background:var(--panel2);
+    color:var(--text); border-radius:7px; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:12px; }
+  #recCfg .rcBtn:hover { border-color:var(--acc); }
+  #recCfg .rcTags { display:flex; flex-wrap:wrap; gap:4px; }
+  #recCfg .rcTag { background:#0b0e14; border:1px solid var(--line); border-radius:6px; padding:1px 6px;
+    font-size:10px; color:#cbd5e1; cursor:pointer; }
+  #recCfg .rcTag:hover { border-color:var(--acc); color:#fff; }
+  #recCfg .rcPrev { font-size:10px; color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    font-family:Consolas,monospace; }
+  /* ---------- source recording highlight ---------- */
+  .srcCard.recording { background:rgba(225,29,72,.22); border-color:#e11d48cc; }
+  .srcLogo { position:relative; }
+  .recBadge { position:absolute; top:4px; right:4px; background:var(--acc); color:#fff;
+    font-size:9px; font-weight:800; letter-spacing:.5px; padding:1px 5px; border-radius:99px;
+    display:inline-flex; align-items:center; gap:3px; box-shadow:0 2px 8px rgba(0,0,0,.5); }
+  .recDot { width:6px; height:6px; border-radius:50%; background:#fff; animation:recBlink 1.2s infinite; }
+  @keyframes recBlink { 0%,100%{opacity:1} 50%{opacity:.25} }
+  /* ---------- record button in EPG / popup / reminders ---------- */
+  .recBtn { flex:none; cursor:pointer; opacity:.35; font-size:13px; padding:0 2px; user-select:none; color:#fb7185; }
+  .recBtn:hover { opacity:.9; }
+  .recBtn.on { opacity:1; color:var(--acc); filter:drop-shadow(0 0 5px #e11d48); }
+  /* ---------- active recording panel in right menu ---------- */
+  #recPanel { display:none; flex:1; flex-direction:column; gap:12px; padding:10px 14px 14px; overflow-y:auto; }
+  body.recActive #recPanel { display:flex; }
+  body.recActive #favs, body.recActive #hrFavsProto,
+  body.recActive #stationFilterWrap, body.recActive #hrStationsProto,
+  body.recActive #stationList { display:none !important; }
+  .recCard { background:var(--panel2); border:1px solid #e11d4888; border-radius:14px; padding:12px;
+    display:flex; flex-direction:column; gap:10px; }
+  .recCardTop { display:flex; gap:10px; align-items:center; }
+  .recThumb { width:72px; height:52px; border-radius:8px; object-fit:cover; background:#0b0e14; flex:none; display:none; }
+  .recThumbBadge { width:52px; height:52px; border-radius:10px; flex:none; display:flex; align-items:center;
+    justify-content:center; font-weight:800; font-size:16px; color:#fff; }
+  .recMeta { flex:1; min-width:0; }
+  .recMeta .rmTop { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--dim); }
+  .recMeta .rmTitle { font-size:15px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+  .recMeta .rmTime { font-size:11px; color:var(--dim); font-variant-numeric:tabular-nums; margin-top:2px; }
+  .recStats { display:flex; justify-content:space-between; font-size:12px; color:#cbd5e1;
+    font-variant-numeric:tabular-nums; background:#0b0e1488; border:1px solid var(--line);
+    border-radius:10px; padding:7px 10px; }
+  .recFile { font-size:11px; color:var(--dim); font-family:Consolas,monospace;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .recActions { display:flex; flex-direction:column; gap:8px; }
+  /* ---------- hidden stream dark screen while recording ---------- */
+  #recHiddenOverlay { position:fixed; inset:0; z-index:35; display:none; background:#080b10;
+    align-items:center; justify-content:center; pointer-events:none; }
+  body.recStreamHidden #recHiddenOverlay { display:flex; }
+  body.recStreamHidden #stageCenter { display:none; }
+  .recHiddenBox { text-align:center; display:flex; flex-direction:column; align-items:center; gap:10px;
+    color:var(--dim); max-width:420px; padding:24px; }
+  .recHiddenBox .rhPill { display:inline-flex; align-items:center; gap:8px; background:rgba(225,29,72,.16);
+    border:1px solid #e11d4888; color:#fecdd3; border-radius:99px; padding:5px 14px; font-size:12px; font-weight:700; }
+  .recHiddenBox h3 { font-size:18px; color:var(--text); }
+  .recHiddenBox p { font-size:13px; color:var(--dim); font-variant-numeric:tabular-nums; }
+  /* ---------- generic modal (collision + stop confirmation) ---------- */
+  .protoModal { position:fixed; inset:0; z-index:110; display:none; align-items:center; justify-content:center;
+    background:rgba(0,0,0,.65); backdrop-filter:blur(4px); }
+  .protoModal.on { display:flex; }
+  .protoModalCard { width:min(450px, 92vw); background:var(--panel); border:1px solid var(--line);
+    border-radius:16px; padding:18px 20px; display:flex; flex-direction:column; gap:12px;
+    box-shadow:0 20px 60px rgba(0,0,0,.75); }
+  .protoModalCard h2 { font-size:17px; display:flex; align-items:center; gap:8px; }
+  .protoModalCard p { font-size:13px; color:#cbd5e1; line-height:1.5; }
+  .protoModalCard .mBox { background:#0b0e14; border:1px solid var(--line); border-radius:10px;
+    padding:10px 12px; font-size:12px; line-height:1.6; color:var(--text); }
+  .protoModalCard .mBox.err { border-color:#e11d4888; background:rgba(225,29,72,.1); }
+  .protoModalCard .mRow { display:flex; gap:8px; justify-content:flex-end; margin-top:4px; }
+  /* ---------- offline / reconnecting overlay (over CRT static) ---------- */
+  body.offline #stageCenter { display:none; }
+  #offlineOverlay { position:fixed; inset:0; z-index:40; display:none;
+    align-items:center; justify-content:center; pointer-events:none; }
+  body.offline #offlineOverlay { display:flex; }
+  #offlineCard { width:min(380px, 88vw); padding:28px 30px 24px; border-radius:18px;
+    background:rgba(20,25,38,.90); backdrop-filter:blur(14px);
+    border:1px solid var(--line); box-shadow:0 20px 60px rgba(0,0,0,.75);
+    display:flex; flex-direction:column; align-items:center; gap:14px; text-align:center; }
+  .netAnim { position:relative; width:168px; height:168px; display:flex; align-items:center; justify-content:center; }
+  .netRing { position:absolute; inset:0; border-radius:50%; border:6px solid var(--acc);
+    opacity:0; animation:netPulse 2.4s cubic-bezier(.2,.6,.4,1) infinite; }
+  .netRing:nth-child(2) { animation-delay:.8s; }
+  .netRing:nth-child(3) { animation-delay:1.6s; }
+  @keyframes netPulse {
+    0% { transform:scale(.38); border-width:6px; opacity:.9; }
+    100% { transform:scale(1.15); border-width:1px; opacity:0; }
+  }
+  .netCore { position:relative; z-index:2; width:72px; height:72px; border-radius:50%;
+    background:rgba(225,29,72,.16); border:2.5px solid var(--acc);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 0 28px rgba(225,29,72,.45); }
+  .netCore svg { width:38px; height:38px; stroke:#fb7185; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  #offlineCard h3 { font-size:18px; font-weight:700; color:var(--text); letter-spacing:.2px; }
+  #offlineCard .offSub { font-size:13px; color:#cbd5e1; line-height:1.45; }
+  .offDots span { display:inline-block; animation:dotBlink 1.4s infinite both; }
+  .offDots span:nth-child(2) { animation-delay:.2s; }
+  .offDots span:nth-child(3) { animation-delay:.4s; }
+  @keyframes dotBlink { 0%,80%,100%{opacity:.2} 40%{opacity:1} }
+  #offlineMeta { font-size:11px; color:var(--dim); font-variant-numeric:tabular-nums;
+    background:#0b0e1488; border:1px solid var(--line); border-radius:99px; padding:4px 12px; }
   #volRow { display:flex; gap:8px; align-items:center; padding:8px 14px 0; color:var(--dim); font-size:12px; }
   #volIco { cursor:pointer; user-select:none; font-size:14px; }
   #volSlider { flex:1; min-width:0; accent-color:var(--acc); cursor:pointer; }
@@ -72,16 +183,23 @@
     color:var(--dim); scrollbar-width:thin; scrollbar-color:#3b4763 transparent; }
   #actLog:empty { display:none; }
   #actLog .lt { color:#5b657d; margin-right:4px; }
-  #helpPop { position:fixed; z-index:90; width:300px; display:none; background:var(--panel2);
-    border:1px solid var(--line); border-radius:14px; padding:10px 12px; font-size:12px;
-    color:var(--text); box-shadow:0 14px 44px rgba(0,0,0,.6); pointer-events:none; }
+  #helpPop { position:fixed; z-index:90; width:520px; display:none; background:var(--panel2);
+    border:1px solid var(--line); border-radius:16px; padding:0; overflow:hidden; font-size:12px;
+    color:var(--text); box-shadow:0 18px 54px rgba(0,0,0,.7); pointer-events:none; }
   #helpPop.on { display:block; }
-  #helpPop h4 { font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--dim); margin:8px 0 2px; }
-  #helpPop h4:first-child { margin-top:0; }
+  #helpPop .helpBanner { width:100%; height:auto; display:block; border-bottom:1px solid var(--line); }
+  #helpPop .helpGrid { display:grid; grid-template-columns:1fr 1fr; gap:12px 18px; padding:12px 16px; }
+  #helpPop .helpCol { display:flex; flex-direction:column; gap:10px; }
+  #helpPop h4 { font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:var(--dim); margin:0 0 4px;
+    border-bottom:1px solid #2a335088; padding-bottom:3px; }
   #helpPop .hrow { display:flex; gap:8px; align-items:baseline; padding:2px 0; }
-  #helpPop .hkeys { flex:none; }
+  #helpPop .hkeys { flex:none; min-width:68px; }
   #helpPop kbd { background:#0b0e14; border:1px solid var(--line); border-radius:6px; padding:1px 7px;
     font-family:inherit; font-size:11px; white-space:nowrap; }
+  #helpPop .helpFoot { display:flex; justify-content:space-between; align-items:center;
+    padding:8px 16px; background:#0b0e1488; border-top:1px solid var(--line);
+    font-size:11px; color:var(--dim); font-variant-numeric:tabular-nums; }
+  #helpPop .helpFoot b { color:var(--text); font-weight:700; }
   .srcCard { border:1px solid var(--line); background:var(--panel2); border-radius:12px;
     padding:10px; display:flex; flex-direction:column; gap:10px; cursor:pointer; }
   .srcCard.active { border-color:var(--acc); box-shadow:0 0 0 1px var(--acc) inset; }
@@ -202,7 +320,10 @@
   .remRow.failed { background:rgba(225,29,72,.25); border:1px solid #e11d4daa; }
   .remRow .rr { flex:none; cursor:pointer; font-size:16px; font-weight:700; padding:0 2px; user-select:none; color:var(--text); }
   .remRow .rr:hover { filter:drop-shadow(0 0 4px var(--acc)); }
-  .remRow .pin { flex:none; font-size:13px; padding:0 2px; user-select:none; opacity:1; }
+  .remRow .pin { flex:none; font-size:13px; padding:0 2px; user-select:none; opacity:.3; cursor:pointer;
+    display:inline-block; transition:transform .15s, opacity .15s; }
+  .remRow .pin:hover { opacity:.8; }
+  .remRow .pin.on { opacity:1; transform:rotate(-45deg); filter:drop-shadow(0 0 4px var(--acc)); }
   #epgPop.on { display:block; }
   #epgPop h4 { font-size:13px; margin-bottom:6px; }
   #epgPop .ep { padding:6px 8px; }
@@ -272,6 +393,10 @@
     box-shadow:0 6px 20px rgba(0,0,0,.45); }
   #nbMain { flex:1; min-width:0; display:flex; flex-direction:column; gap:4px; }
   #nbTop { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:12px; color:var(--dim); }
+  #nbRecBtn { margin-left:auto; border:1px solid #e11d4888; background:rgba(225,29,72,.14); color:#fecdd3;
+    border-radius:8px; padding:3px 10px; font-size:11px; font-weight:700; cursor:pointer; font-family:inherit; }
+  #nbRecBtn:hover { background:var(--acc); border-color:var(--acc); color:#fff; }
+  #nbRecBtn.on { background:var(--acc); border-color:var(--acc); color:#fff; }
   #nbStation { font-weight:700; color:var(--text); }
   #nbTime { font-variant-numeric:tabular-nums; }
   #nbTitle { font-size:19px; font-weight:700; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -294,6 +419,32 @@
     </div>
     <div class="scan"></div>
     <div id="pauseVeil"><div class="glyph"></div></div>
+    <div id="recHiddenOverlay">
+      <div class="recHiddenBox">
+        <div class="rhPill"><span class="recDot"></span>Probíhá nahrávání na pozadí</div>
+        <h3 id="rhTitle">–</h3>
+        <p id="rhSub">Stream je skrytý · nahrávání pokračuje</p>
+      </div>
+    </div>
+    <div id="offlineOverlay">
+      <div id="offlineCard">
+        <div class="netAnim">
+          <div class="netRing"></div>
+          <div class="netRing"></div>
+          <div class="netRing"></div>
+          <div class="netCore">
+            <svg viewBox="0 0 24 24">
+              <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
+              <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+              <circle cx="12" cy="19.5" r="1" fill="#fb7185"/>
+            </svg>
+          </div>
+        </div>
+        <h3>Síť není dostupná</h3>
+        <div class="offSub">Pokouším se znovu připojit<span class="offDots"><span>.</span><span>.</span><span>.</span></span></div>
+        <div id="offlineMeta">Pokus č. 1 · další za 5 s</div>
+      </div>
+    </div>
   </div>
 
   <!-- RIGHT: sources / favs / stations -->
@@ -301,31 +452,90 @@
     <div class="resizer" id="resR" title="roztáhni myšítkem"></div>
     <div id="winBtns"><span class="grp"><span class="wbtn help" id="srcToggle" title="Sbalit/rozbalit zdroje a konfiguraci">▾</span><span class="wbtn help" id="btnHelp" title="Nápověda k ovládání">?</span></span><span class="grp"><span class="wbtn" id="wMin" title="Minimalizovat">—</span><span class="wbtn" id="wMax" title="Maximalizovat">▢</span><span class="wbtn danger" id="wClose" title="Zavřít">✕</span></span></div>
     <div id="helpPop">
-      <h4>Hlavní plocha</h4>
-      <div class="hrow"><span class="hkeys"><kbd>Klik</kbd></span><span>pauza</span></div>
-      <div class="hrow"><span class="hkeys"><kbd>2×klik</kbd></span><span>fullscreen</span></div>
-      <div class="hrow"><span class="hkeys"><kbd>tah</kbd></span><span>přesun okna</span></div>
-      <div class="hrow"><span class="hkeys"><kbd>Mezerník</kbd></span><span>pauza</span></div>
-      <div class="hrow"><span class="hkeys"><kbd>F</kbd></span><span>fullscreen</span></div>
-      <div class="hrow"><span class="hkeys"><kbd>↑</kbd> <kbd>↓</kbd></span><span>stanice</span></div>
-      <div class="hrow"><span class="hkeys"><kbd>Esc</kbd></span><span>zavřít</span></div>
-      <h4>Levé menu</h4>
-      <div class="hrow"><span class="hkeys"><kbd>okraj</kbd></span><span>otevřít</span></div>
-      <div class="hrow"><span class="hkeys"><kbd>klik</kbd></span><span>označit pořad</span></div>
-      <div class="hrow"><span class="hkeys"><kbd>filtr</kbd></span><span>hledat + křížek</span></div>
-      <h4>Dolní lišta</h4>
-      <div class="hrow"><span class="hkeys"><kbd>dolní okraj</kbd></span><span>detail běžícího pořadu + čas</span></div>
-      <h4>Pravé menu</h4>
-      <div class="hrow"><span class="hkeys"><kbd>okraj</kbd></span><span>otevřít</span></div>
-      <div class="hrow"><span class="hkeys"><kbd>klik</kbd></span><span>přehrát stanici</span></div>
-      <div class="hrow"><span class="hkeys">★</span><span>oblíbená</span></div>
-      <div class="hrow"><span class="hkeys"><kbd>tah</kbd></span><span>přeskládání oblíbených</span></div>
-      <div class="hrow"><span class="hkeys"><kbd>podržení</kbd></span><span>program stanice</span></div>
-      <div class="hrow"><span class="hkeys"><kbd>filtr</kbd></span><span>hledat + křížek</span></div>
-      <div class="hrow"><span class="hkeys">— ▢ ✕</span><span>okno</span></div>
+      <img class="helpBanner" src="docs/banner.jpg" alt="TV Client">
+      <div class="helpGrid">
+        <div class="helpCol">
+          <div>
+            <h4>Hlavní plocha</h4>
+            <div class="hrow"><span class="hkeys"><kbd>Klik</kbd></span><span>pauza</span></div>
+            <div class="hrow"><span class="hkeys"><kbd>2×klik</kbd></span><span>fullscreen</span></div>
+            <div class="hrow"><span class="hkeys"><kbd>tah</kbd></span><span>přesun okna</span></div>
+            <div class="hrow"><span class="hkeys"><kbd>Mezerník</kbd></span><span>pauza</span></div>
+            <div class="hrow"><span class="hkeys"><kbd>F</kbd></span><span>fullscreen</span></div>
+            <div class="hrow"><span class="hkeys"><kbd>↑</kbd> <kbd>↓</kbd></span><span>přepnout stanici</span></div>
+            <div class="hrow"><span class="hkeys"><kbd>Esc</kbd></span><span>zavřít panely</span></div>
+          </div>
+          <div>
+            <h4>Dolní lišta &amp; Nahrávání</h4>
+            <div class="hrow"><span class="hkeys"><kbd>dolní okraj</kbd></span><span>detail pořadu + čas</span></div>
+            <div class="hrow"><span class="hkeys">⏺</span><span>nahrávat / naplánovat</span></div>
+            <div class="hrow"><span class="hkeys">⏰ / 📌</span><span>připomínka / opakování</span></div>
+          </div>
+        </div>
+        <div class="helpCol">
+          <div>
+            <h4>Pravé menu</h4>
+            <div class="hrow"><span class="hkeys"><kbd>pravý okraj</kbd></span><span>otevřít</span></div>
+            <div class="hrow"><span class="hkeys"><kbd>klik</kbd></span><span>přehrát stanici</span></div>
+            <div class="hrow"><span class="hkeys">★</span><span>oblíbená stanice</span></div>
+            <div class="hrow"><span class="hkeys"><kbd>tah</kbd></span><span>přeskládání oblíbených</span></div>
+            <div class="hrow"><span class="hkeys"><kbd>podržení</kbd></span><span>program stanice</span></div>
+            <div class="hrow"><span class="hkeys"><kbd>filtr</kbd></span><span>hledat + křížek</span></div>
+            <div class="hrow"><span class="hkeys">— ▢ ✕</span><span>ovládání okna</span></div>
+          </div>
+          <div>
+            <h4>Levé menu (EPG)</h4>
+            <div class="hrow"><span class="hkeys"><kbd>levý okraj</kbd></span><span>otevřít program</span></div>
+            <div class="hrow"><span class="hkeys"><kbd>podržení</kbd></span><span>detail pořadu</span></div>
+            <div class="hrow"><span class="hkeys"><kbd>filtr</kbd></span><span>hledat + křížek</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="helpFoot">
+        <span><b>TV Client</b> · v0.4.0</span>
+        <span>Release: 20. 11. 2026</span>
+      </div>
     </div>
     <div id="sources"></div>
-    <label id="autostartRow" title="Automaticky spustit aplikaci po přihlášení do Windows"><input type="checkbox" id="autostartChk"><span>Spustit při startu</span></label>
+    <div id="genCfg" class="cfgGroup">
+      <div class="cfgHead">⚙ Základní nastavení</div>
+      <label id="autostartRow" title="Automaticky spustit aplikaci po přihlášení do Windows"><input type="checkbox" id="autostartChk"><span>Spustit při startu</span></label>
+    </div>
+    <div id="recCfg" class="cfgGroup">
+      <div class="cfgHead"><span style="color:var(--acc)">⏺</span> Nahrávání</div>
+      <div class="rcRow">
+        <label for="recCodec">Formát:</label>
+        <select id="recCodec" title="Výstupní formát a kodek (překódování po dokončení)">
+          <option value="hevc_nvenc">MP4 · HEVC (GPU)</option>
+          <option value="av1_nvenc">MP4 · AV1 (GPU)</option>
+          <option value="libx265">MP4 · HEVC (CPU)</option>
+          <option value="ts">TS (originál, bez překódování)</option>
+        </select>
+      </div>
+      <div class="rcRow">
+        <label for="recPad">Přesah po konci:</label>
+        <input type="number" id="recPad" min="0" max="120" value="10">
+        <span>min</span>
+      </div>
+      <div class="rcRow">
+        <label for="recDir">Složka:</label>
+        <input id="recDir" value="C:\Users\tv\Videos\TV Client" title="Adresář pro ukládání nahrávek">
+        <button class="rcBtn" id="btnRecDir" title="Vybrat adresář (systémový dialog)">📁</button>
+      </div>
+      <div class="rcRow top">
+        <label for="recFmt">Název:</label>
+        <div class="rcCol">
+          <input id="recFmt" value="{date}_{time}_{channel}_{title}" title="Formát názvu ukládaného souboru">
+          <div class="rcTags" id="recTags">
+            <span class="rcTag" data-tag="{date}">{date}</span>
+            <span class="rcTag" data-tag="{time}">{time}</span>
+            <span class="rcTag" data-tag="{channel}">{channel}</span>
+            <span class="rcTag" data-tag="{title}">{title}</span>
+          </div>
+          <div class="rcPrev" id="recPrev" title="Ukázka výsledného názvu souboru"></div>
+        </div>
+      </div>
+    </div>
     <div id="volRow"><span id="volIco" title="Hlasitost">🔊</span><input type="range" id="volSlider" min="0" max="100" value="80"><span id="volVal">80&nbsp;%</span></div>
     <div id="actLogWrap"><div id="actLog"></div></div>
     <div id="loginModal">
@@ -358,6 +568,29 @@
     <div id="favs"></div>
     <hr class="sep" id="hrRemProto" style="display:none">
     <div id="remList" style="display:none"></div>
+    <div id="recPanel">
+      <div class="recCard">
+        <div class="recCardTop">
+          <img class="recThumb" id="recThumb" alt="">
+          <div class="recThumbBadge" id="recThumbBadge">–</div>
+          <div class="recMeta">
+            <div class="rmTop"><span id="recStName">–</span><span class="live" style="margin-left:0">● REC</span></div>
+            <div class="rmTitle" id="recProgTitle">–</div>
+            <div class="rmTime" id="recProgTime">–</div>
+          </div>
+        </div>
+        <div class="bar"><div id="recProgBar" style="width:0%;background:linear-gradient(90deg,var(--acc),#fb7185)"></div></div>
+        <div class="recStats">
+          <span id="recElapsed">00:00:00</span>
+          <span id="recSize">0,0 MB</span>
+        </div>
+        <div class="recFile" id="recFilePath" title="">–</div>
+      </div>
+      <div class="recActions">
+        <button class="btn" id="btnRecHideStream">👁 Skrýt stream</button>
+        <button class="btn primary" id="btnRecStop">⏹ Zastavit nahrávání</button>
+      </div>
+    </div>
     <hr class="sep" id="hrStationsProto">
     <div id="stationFilterWrap"><input id="stationFilterProto" placeholder="Hledat stanici…" autocomplete="off"><button id="stationFilterClear" title="Smazat text">×</button></div>
     <div id="stationList"></div>
@@ -385,14 +618,42 @@
       <div id="nbTop">
         <span id="nbStation">–</span>
         <span id="nbSrc"></span>
-        <span class="live" style="margin-left:0">ŽIVĚ</span>
+        <span class="live" id="nbLive" style="margin-left:0">ŽIVĚ</span>
         <span id="nbTime"></span>
+        <button id="nbRecBtn" title="Nahrávat běžící pořad">⏺ Nahrávat</button>
       </div>
       <div id="nbTitle">–</div>
       <div id="nbBar"><div id="nbBarFill"></div></div>
       <div id="nbDesc"></div>
     </div>
   </aside>
+
+  <!-- COLLISION MODAL -->
+  <div class="protoModal" id="recCollisionModal">
+    <div class="protoModalCard">
+      <h2>⚠ Kolize plánování</h2>
+      <p id="recColIntro">Pořad koliduje s jiným naplánovaným záznamem ze stejného zdroje.</p>
+      <div class="mBox" id="recColNew"></div>
+      <div class="mBox err" id="recColList"></div>
+      <div class="mRow">
+        <button class="btn" id="btnRecColCancel">Zrušit</button>
+        <button class="btn primary" id="btnRecColReplace">Nahradit kolidující plán</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STOP RECORDING CONFIRMATION MODAL -->
+  <div class="protoModal" id="recStopModal">
+    <div class="protoModalCard">
+      <h2>⏹ Zastavit nahrávání?</h2>
+      <p id="recStopText">Opravdu chceš ukončit probíhající nahrávání? Dosavadní záznam bude uložen.</p>
+      <div class="mBox" id="recStopInfo"></div>
+      <div class="mRow">
+        <button class="btn" id="btnRecStopCancel">Pokračovat</button>
+        <button class="btn primary" id="btnRecStopConfirm">Zastavit a uložit</button>
+      </div>
+    </div>
+  </div>
 
 
 <script>
@@ -459,6 +720,203 @@ try {
 } catch { reminders = {}; }
 function saveReminders() { try { localStorage.setItem('protoReminders', JSON.stringify(reminders)); } catch {} }
 function progKey(st, p) { return st.name + '|' + p[0]; }
+/* ---- Nahrávání (prototypová simulace) ---- */
+let recCfg = { codec: 'hevc_nvenc', pad: 10, dir: 'C:\\Users\\tv\\Videos\\TV Client', fmt: '{date}_{time}_{channel}_{title}' };
+try {
+  const saved = JSON.parse(localStorage.getItem('protoRecCfg') || '{}');
+  if (saved.fmt && /\{datum\}|\{cas\}|\{kanal\}|\{nazev\}/.test(saved.fmt)) {
+    saved.fmt = saved.fmt.replace(/\{datum\}/g, '{date}').replace(/\{cas\}/g, '{time}').replace(/\{kanal\}/g, '{channel}').replace(/\{nazev\}/g, '{title}');
+  }
+  Object.assign(recCfg, saved);
+} catch {}
+function saveRecCfg() { try { localStorage.setItem('protoRecCfg', JSON.stringify(recCfg)); } catch {} }
+function sanitizeFile(s) { return String(s || '').replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '_'); }
+function formatRecName(stName, title, timeStr) {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  const date = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  const time = (timeStr || (p(d.getHours()) + ':' + p(d.getMinutes()))).replace(':', '-');
+  const raw = (recCfg.fmt || '{date}_{time}_{channel}_{title}')
+    .replace(/\{date\}/g, date)
+    .replace(/\{time\}/g, time)
+    .replace(/\{channel\}/g, sanitizeFile(stName))
+    .replace(/\{title\}/g, sanitizeFile(title));
+  const ext = (recCfg.codec && recCfg.codec !== 'ts') ? '.mp4' : '.ts';
+  return sanitizeFile(raw) + ext;
+}
+function hmToMin(hm) {
+  const m = /^(\d+):(\d+)$/.exec(hm || '');
+  return m ? (+m[1]) * 60 + (+m[2]) : null;
+}
+function minToHm(mins) {
+  const m = ((mins % 1440) + 1440) % 1440;
+  return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+}
+function progEndMin(st, p) {
+  const epg = st.epg || [];
+  const i = epg.findIndex(x => x[0] === p[0] && x[1] === p[1]);
+  const s = hmToMin(p[0]);
+  if (s === null) return 0;
+  if (i >= 0 && epg[i + 1]) {
+    const e = hmToMin(epg[i + 1][0]);
+    if (e !== null && e > s) return e;
+  }
+  return s + 60;
+}
+const activeRec = { sltv: null, oneplay: null };
+let pendingCollisionAction = null;
+function findRecCollisions(src, startMin, endMin, excludeKey) {
+  const hits = [];
+  const ar = activeRec[src];
+  if (ar) {
+    hits.push({ active: true, label: 'Právě nahrává: ' + ar.station + ' – ' + ar.title + ' (' + ar.start + ' – ' + ar.end + ' +' + ar.pad + ' min)' });
+  }
+  for (const [k, r] of Object.entries(reminders)) {
+    if (k === excludeKey || r.src !== src) continue;
+    const rs = hmToMin(r.t);
+    if (rs === null) continue;
+    const st = (DATA[src] || []).find(s => s.name === r.station);
+    const baseEnd = st ? progEndMin(st, [r.t, r.title]) : rs + 60;
+    const re = baseEnd + (r.record ? (+recCfg.pad || 0) : 0);
+    if (startMin < re && rs < endMin) {
+      hits.push({
+        key: k,
+        label: (r.record ? '⏺ Nahrávání: ' : '⏰ Připomínka: ') + r.station + ' – ' + r.title +
+          ' (' + r.t + ' – ' + minToHm(baseEnd) + (r.record ? ' +' + recCfg.pad + ' min' : '') + ')'
+      });
+    }
+  }
+  return hits;
+}
+function openCollisionModal(newDesc, hits, onReplace) {
+  document.getElementById('recColNew').innerHTML = '<b>Nový požadavek:</b><br>' + newDesc;
+  document.getElementById('recColList').innerHTML = '<b>Koliduje s:</b><br>' + hits.map(h => '• ' + h.label).join('<br>');
+  const btnRep = document.getElementById('btnRecColReplace');
+  const hasActive = hits.some(h => h.active);
+  btnRep.textContent = hasActive ? 'Zastavit běžící a nahradit' : 'Nahradit kolidující plán';
+  pendingCollisionAction = onReplace;
+  document.getElementById('recCollisionModal').classList.add('on');
+}
+function closeCollisionModal() {
+  document.getElementById('recCollisionModal').classList.remove('on');
+  pendingCollisionAction = null;
+}
+function startRecordingNow(src, st, p) {
+  const sMin = hmToMin(p[0]) || 0;
+  const eMin = progEndMin(st, p);
+  const file = formatRecName(st.name, p[1], p[0]);
+  const fullPath = (recCfg.dir || 'C:\\Recordings').replace(/[\\/]+$/, '') + '\\' + file;
+  activeRec[src] = {
+    src, station: st.name, ini: st.ini, color: st.color,
+    title: p[1], start: p[0], end: minToHm(eMin), pct: p[3] || st.pct || 25,
+    pad: +recCfg.pad || 0, elapsedSec: 0, sizeMb: 0, filePath: fullPath, streamHidden: false
+  };
+  const si = (DATA[src] || []).findIndex(s => s.name === st.name);
+  if (src === curSrc && si >= 0) selIdx = si;
+  document.body.classList.remove('leftOpen');
+  renderAll();
+  log('⏺ spuštěno nahrávání: ' + st.name + ' – ' + p[1] + ' → ' + file);
+}
+function toggleRecordFor(st, p) {
+  const k = progKey(st, p);
+  const isNow = !!p[2];
+  if (isNow) {
+    if (activeRec[curSrc] && activeRec[curSrc].station === st.name && activeRec[curSrc].title === p[1]) {
+      openStopRecModal(curSrc);
+      return;
+    }
+    const sMin = hmToMin(p[0]) || 0;
+    const eMin = progEndMin(st, p) + (+recCfg.pad || 0);
+    const hits = findRecCollisions(curSrc, sMin, eMin, k);
+    const desc = '⏺ ' + st.name + ' – ' + p[1] + ' (' + p[0] + ' – ' + minToHm(progEndMin(st, p)) + ' +' + recCfg.pad + ' min)';
+    if (hits.length) {
+      openCollisionModal(desc, hits, () => {
+        if (activeRec[curSrc]) activeRec[curSrc] = null;
+        hits.forEach(h => { if (h.key) delete reminders[h.key]; });
+        saveReminders();
+        startRecordingNow(curSrc, st, p);
+      });
+      return;
+    }
+    startRecordingNow(curSrc, st, p);
+    return;
+  }
+  if (reminders[k] && reminders[k].record) {
+    reminders[k].record = false;
+    saveReminders(); renderAll();
+    log('⏺ nahrávání zrušeno u plánu: ' + p[1]);
+    return;
+  }
+  const sMin = hmToMin(p[0]) || 0;
+  const baseEnd = progEndMin(st, p);
+  const eMin = baseEnd + (+recCfg.pad || 0);
+  const hits = findRecCollisions(curSrc, sMin, eMin, k);
+  const desc = '⏺ ' + st.name + ' – ' + p[1] + ' (' + p[0] + ' – ' + minToHm(baseEnd) + ' +' + recCfg.pad + ' min)';
+  const apply = () => {
+    const prev = reminders[k] || {};
+    reminders[k] = { ...prev, t: p[0], title: p[1], src: curSrc, station: st.name, record: true };
+    saveReminders(); renderAll();
+    log('⏺ naplánováno nahrávání: ' + st.name + ' – ' + p[1] + ' (' + p[0] + ')');
+  };
+  if (hits.length) {
+    openCollisionModal(desc, hits, () => {
+      if (activeRec[curSrc]) activeRec[curSrc] = null;
+      hits.forEach(h => { if (h.key) delete reminders[h.key]; });
+      apply();
+    });
+    return;
+  }
+  apply();
+}
+let stopModalSrc = null;
+function openStopRecModal(src) {
+  const r = activeRec[src]; if (!r) return;
+  stopModalSrc = src;
+  document.getElementById('recStopInfo').innerHTML =
+    '<b>' + r.station + ' – ' + r.title + '</b><br>' +
+    'Nahráno: ' + formatElapsed(r.elapsedSec) + ' (' + r.sizeMb.toFixed(1).replace('.', ',') + ' MB)<br>' +
+    'Soubor: <span style="font-family:Consolas,monospace">' + r.filePath + '</span>';
+  document.getElementById('recStopModal').classList.add('on');
+}
+function closeStopRecModal() {
+  document.getElementById('recStopModal').classList.remove('on');
+  stopModalSrc = null;
+}
+function formatElapsed(sec) {
+  const p = n => String(n).padStart(2, '0');
+  return p(Math.floor(sec / 3600)) + ':' + p(Math.floor((sec % 3600) / 60)) + ':' + p(sec % 60);
+}
+function renderRecPanel() {
+  const r = activeRec[curSrc];
+  document.body.classList.toggle('recActive', !!r);
+  document.body.classList.toggle('recStreamHidden', !!(r && r.streamHidden));
+  if (!r) return;
+  const img = (r.src === 'oneplay' ? DEMO_IMG[r.title] : null) || null;
+  const imgEl = document.getElementById('recThumb'), badgeEl = document.getElementById('recThumbBadge');
+  if (img) { imgEl.src = img; imgEl.style.display = 'block'; badgeEl.style.display = 'none'; }
+  else { imgEl.style.display = 'none'; badgeEl.textContent = r.ini; badgeEl.style.background = r.color; badgeEl.style.display = 'flex'; }
+  document.getElementById('recStName').textContent = r.station;
+  document.getElementById('recProgTitle').textContent = r.title;
+  document.getElementById('recProgTime').textContent = r.start + ' – ' + r.end + ' (+' + r.pad + ' min)';
+  document.getElementById('recProgBar').style.width = r.pct + '%';
+  document.getElementById('recElapsed').textContent = formatElapsed(r.elapsedSec);
+  document.getElementById('recSize').textContent = r.sizeMb.toFixed(1).replace('.', ',') + ' MB';
+  const fp = document.getElementById('recFilePath');
+  fp.textContent = r.filePath; fp.title = r.filePath;
+  document.getElementById('btnRecHideStream').textContent = r.streamHidden ? '👁 Zobrazit stream' : '👁 Skrýt stream';
+  document.getElementById('rhTitle').textContent = r.station + ' – ' + r.title;
+  document.getElementById('rhSub').textContent = 'Stream je skrytý · ' + formatElapsed(r.elapsedSec) + ' · ' + r.sizeMb.toFixed(1).replace('.', ',') + ' MB';
+}
+setInterval(() => {
+  let changed = false;
+  for (const src of Object.keys(activeRec)) {
+    const r = activeRec[src];
+    if (!r) continue;
+    r.elapsedSec++;
+    r.sizeMb += 0.65;
+    changed = true;
+  }
+  if (changed && activeRec[curSrc]) renderRecPanel();
+}, 1000);
 function toggleReminder(st, p) {
   const k = progKey(st, p);
   if (reminders[k]) { delete reminders[k]; log('⏰ připomínka zrušena: ' + p[1]); }
@@ -569,6 +1027,19 @@ function renderBottomBar(st){
   $('#nbTitle').textContent = title;
   $('#nbBarFill').style.width = (st.pct || 0) + '%';
   $('#nbDesc').textContent = DEMO_DESC[title] || ('Pořad „' + title + '“' + (start ? ' (' + start + ')' : '') + '. Podrobnosti (herci, rok, žánr) poskytne EPG zdroje.');
+  const recBtn = document.getElementById('nbRecBtn');
+  if (recBtn) {
+    const isRec = !!activeRec[curSrc];
+    recBtn.classList.toggle('on', isRec);
+    recBtn.textContent = isRec ? '⏹ Zastavit' : '⏺ Nahrávat';
+    recBtn.title = isRec ? 'Zastavit probíhající nahrávání' : 'Nahrávat běžící pořad';
+    recBtn.onclick = (ev) => {
+      ev.stopPropagation();
+      if (activeRec[curSrc]) { openStopRecModal(curSrc); return; }
+      const prog = ep ? [ep[0], ep[1], 1, ep[3] || st.pct] : ['19:00', title, 1, st.pct];
+      toggleRecordFor(st, prog);
+    };
+  }
 }
 function updateBottomClock(){
   const now = new Date();
@@ -586,16 +1057,21 @@ function renderEpg(st){
   const e=$('#epg'); e.innerHTML='';
   const q=normName(epgFilterDemo);
   let shown=0;
+  const liveIdx = (st.epg || []).findIndex(x => !!x[2]);
   const rows=st.epg.filter(p=>!q||normName(p[1]).includes(q));
   rows.forEach((p,idx)=>{
     shown++;
+    const origIdx = (st.epg || []).indexOf(p);
     const d=document.createElement('div'); d.className='ep'+(p[2]?' now':'');
     const marked = !!reminders[progKey(st,p)];
-    const hm=p[0].split(':'), nowD=new Date();
-    const upcoming=!p[2]&&((+hm[0])*60+(+hm[1]))>nowD.getHours()*60+nowD.getMinutes();
+    const recOn = !!(reminders[progKey(st,p)] && reminders[progKey(st,p)].record) || !!(activeRec[curSrc] && activeRec[curSrc].station === st.name && activeRec[curSrc].title === p[1]);
+    const upcoming = !p[2] && (liveIdx >= 0 ? origIdx > liveIdx : true);
+    const canRec = !!p[2] || upcoming;
     d.innerHTML='<span class="t">'+p[0]+'</span><span class="ti">'+p[1]+(p[2]?'<span class="live">LIVE</span>':'')+'</span>'
+      +(canRec?'<span class="recBtn'+(recOn?' on':'')+'" title="'+(p[2]?'Nahrávat hned':'Naplánovat nahrávání')+'">⏺</span>':'')
       +(upcoming?'<span class="rem'+(marked?' on':'')+'" title="Připomenout a v daný čas přepnout">⏰</span>':'')
       +(p[2]?'<div class="epProg"><div style="width:'+(p[3]||10)+'%'+'"></div></div>':'');
+    if(canRec) d.querySelector('.recBtn').onclick=ev=>{ev.stopPropagation(); toggleRecordFor(st,p);};
     if(upcoming) d.querySelector('.rem').onclick=ev=>{ev.stopPropagation(); toggleReminder(st,p);};
     d.onclick=ev=>{ev.stopPropagation(); st.now=p[1]; st.pct=p[3]||10; renderStage(); renderStations(); log('EPG: „'+p[1]+'“ → právě běží na '+st.name);};
     d.onmouseenter=()=>scheduleProgDetail(d,st,rows,idx);
@@ -618,6 +1094,7 @@ stage.addEventListener('click',()=>{
   else clickTimer=setTimeout(()=>{ clickTimer=null; togglePause(); },260);
 });
 function togglePause(){
+  if(activeRec[curSrc]){ log('pauza je během nahrávání zakázána (použij „Skrýt stream“)'); return; }
   paused=!paused; stage.classList.toggle('paused',paused);
   log(paused?'⏸ pauza':'▶ přehrávání');
 }
@@ -633,8 +1110,9 @@ function renderSources(){
   const w=$('#sources'); w.innerHTML='';
   SOURCES.forEach(s=>{
     const isLogged = logged[s.id], n = isLogged ? DATA[s.id].length : 0;
-    const card=document.createElement('div'); card.className='srcCard'+(s.id===curSrc?' active':'');
-    card.innerHTML='<div class="srcTop"><div class="srcLogo '+s.chip+'" title="'+s.name+(isLogged?' · demo přihlášeno':'')+'"><img src="'+s.logo+'" alt="'+s.name+'"></div></div>'
+    const isRec = !!activeRec[s.id];
+    const card=document.createElement('div'); card.className='srcCard'+(s.id===curSrc?' active':'')+(isRec?' recording':'');
+    card.innerHTML='<div class="srcTop"><div class="srcLogo '+s.chip+'" title="'+s.name+(isLogged?' · demo přihlášeno':'')+(isRec?' · NAHRÁVÁ':'')+'"><img src="'+s.logo+'" alt="'+s.name+'">'+(isRec?'<span class="recBadge"><span class="recDot"></span>REC</span>':'')+'</div></div>'
       +'<div class="srcBtns"><button class="btn '+(isLogged?'':'primary')+'">'+(isLogged?'Odhlásit':'Přihlásit')+'</button></div>';
     const mainBtn=card.querySelector('.srcBtns .btn');
     mainBtn.onclick=ev=>{ev.stopPropagation();
@@ -665,6 +1143,24 @@ autostartChk.addEventListener('change', () => {
   localStorage.setItem('protoAutostart', autostartChk.checked ? '1' : '0');
   log('spustit při startu (demo): ' + (autostartChk.checked ? 'zapnuto' : 'vypnuto'));
 });
+/* Demo: zobrazeni okna pri vypadku site (CRT static + animovane informacni okno; klavesa O prepina) */
+let offDemoT = null, offAttempt = 1, offCountdown = 5;
+function setOfflineDemo(on){
+  document.body.classList.toggle('offline', on);
+  clearInterval(offDemoT); offDemoT = null;
+  if(on){
+    offAttempt = 1; offCountdown = 5;
+    const meta = document.getElementById('offlineMeta');
+    const tick = () => { if(meta) meta.textContent = 'Pokus č. ' + offAttempt + ' · další za ' + offCountdown + ' s'; };
+    tick();
+    offDemoT = setInterval(() => {
+      offCountdown--;
+      if(offCountdown <= 0){ offAttempt++; offCountdown = 5; }
+      tick();
+    }, 1000);
+  }
+}
+setOfflineDemo(true);
 /* Ovladani hlasitosti streamu (demo: jen UI + log, zadne audio) */
 let demoVol = +(localStorage.getItem('protoVol') || 80);
 function syncVol(muted){
@@ -888,15 +1384,18 @@ function showEpgPop(row,st){
   const pop=document.getElementById('epgPop'), list=document.getElementById('epgPopList');
   document.getElementById('epgPopHead').textContent=st.name;
   list.innerHTML='';
-  const nowD=new Date(), nowM=nowD.getHours()*60+nowD.getMinutes();
-  (st.epg||[]).slice(0,6).forEach(p=>{
+  const liveIdx = (st.epg || []).findIndex(x => !!x[2]);
+  (st.epg||[]).slice(0,6).forEach((p,pi)=>{
     const d=document.createElement('div'); d.className='ep'+(p[2]?' now':'');
     const marked=!!reminders[progKey(st,p)];
-    const hm=p[0].split(':');
-    const upcoming=!p[2]&&((+hm[0])*60+(+hm[1]))>nowM;
+    const recOn=!!(reminders[progKey(st,p)]&&reminders[progKey(st,p)].record)||!!(activeRec[curSrc]&&activeRec[curSrc].station===st.name&&activeRec[curSrc].title===p[1]);
+    const upcoming=!p[2]&&(liveIdx>=0?pi>liveIdx:true);
+    const canRec=!!p[2]||upcoming;
     d.innerHTML='<span class="t">'+p[0]+'</span><span class="ti">'+p[1]+(p[2]?'<span class="live">LIVE</span>':'')+'</span>'
+      +(canRec?'<span class="recBtn'+(recOn?' on':'')+'" title="'+(p[2]?'Nahrávat hned':'Naplánovat nahrávání')+'">⏺</span>':'')
       +(upcoming?'<span class="rem'+(marked?' on':'')+'" title="Připomenout a v daný čas přepnout">⏰</span>':'')
       +(p[2]?'<div class="epProg"><div style="width:'+(p[3]||10)+'%'+'"></div></div>':'');
+    if(canRec) d.querySelector('.recBtn').onclick=ev=>{ev.stopPropagation(); toggleRecordFor(st,p); if(lastPopRow) showEpgPop(lastPopRow,lastPopSt);};
     if(upcoming) d.querySelector('.rem').onclick=ev=>{ev.stopPropagation(); toggleReminder(st,p); if(lastPopRow) showEpgPop(lastPopRow,lastPopSt);};
     list.appendChild(d);
   });
@@ -962,7 +1461,7 @@ function cancelBottomClose(){
 }
 document.addEventListener('mousemove',e=>{
   if(e.clientX>=window.innerWidth-24){ clearTimeout(hideT); document.body.classList.add('rightOpen'); }
-  else if(e.clientX<=24&&ch().length){ clearTimeout(hideT); document.body.classList.add('leftOpen'); }
+  else if(e.clientX<=24&&ch().length&&!activeRec[curSrc]){ clearTimeout(hideT); document.body.classList.add('leftOpen'); }
   if(ch().length){
     if(e.clientY>=window.innerHeight-24){
       cancelBottomClose(); updateBottomClock(); document.body.classList.add('bottomOpen');
@@ -984,12 +1483,16 @@ function updatePin(){
 }
 document.getElementById('wMin').onclick=()=>log('demo: minimalizace (v aplikaci)');
 document.getElementById('wMax').onclick=()=>{ toggleFS(); };
-document.getElementById('wClose').onclick=()=>log('demo: zavření (v aplikaci)');
+document.getElementById('wClose').onclick=()=>{
+  const recSrc = Object.keys(activeRec).find(k => activeRec[k]);
+  if(recSrc){ openStopRecModal(recSrc); log('zavření blokováno: probíhá nahrávání'); }
+  else log('demo: zavření (v aplikaci)');
+};
 document.getElementById('btnHelp').onmouseenter=(e)=>{
   const pop=document.getElementById('helpPop');
   pop.classList.add('on');
   const panelW=document.getElementById('panelR').offsetWidth||350;
-  pop.style.left=Math.max(8, window.innerWidth-panelW-10-300)+'px';
+  pop.style.left=Math.max(8, window.innerWidth-panelW-10-520)+'px';
   const r=e.target.getBoundingClientRect();
   const ph=pop.offsetHeight||380;
   pop.style.top=Math.max(8, Math.min(r.top-40, window.innerHeight-ph-8))+'px';
@@ -1000,14 +1503,16 @@ document.addEventListener('keydown',e=>{
   if(tag==='input'||tag==='textarea'){ if(e.key!=='Escape') return; }
   if(e.key===' '){ e.preventDefault(); if(ch().length) togglePause(); }
   else if(e.key==='f'||e.key==='F'){ toggleFS(); }
-  else if(e.key==='Escape'){ document.body.classList.remove('rightOpen','leftOpen','bottomOpen'); hideEpgPop(); hideProgDetail(); closeLoginModal(); }
+  else if(e.key==='o'||e.key==='O'){ setOfflineDemo(!document.body.classList.contains('offline')); }
+  else if(e.key==='Escape'){ document.body.classList.remove('rightOpen','leftOpen','bottomOpen'); hideEpgPop(); hideProgDetail(); closeLoginModal(); closeCollisionModal(); closeStopRecModal(); }
   else if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+    if(activeRec[curSrc]){ log('přepínání stanic je během nahrávání zablokováno'); return; }
     const list=ch(); if(!list.length) return;
     selIdx=(selIdx+(e.key==='ArrowDown'?1:-1)+list.length)%list.length;
     renderAll(); log('stanice → '+list[selIdx].name);
   }
 });
-function renderAll(){ renderSources(); renderFavs(); renderReminders(); renderStations(); renderStage(); updatePin(); }
+function renderAll(){ renderSources(); renderFavs(); renderReminders(); renderRecPanel(); renderStations(); renderStage(); updatePin(); }
 /* Naplánované pořady: vlastní sekce pod oblíbenými (oddelovač, bez scrollbarů, roste s počtem).
    Klik přepne stanici, křížek připomínku zruší. */
 /* Demo ukázka neúspěšného přeplánování: připnutý záznam, který už nešel najít.
@@ -1025,8 +1530,9 @@ function renderReminders(){
   demoKeys.forEach(k=>{
     const r=DEMO_FAILED_REM[k];
     const d=document.createElement('div'); d.className='remRow failed';
-    d.innerHTML='<span class="t">'+r.t+'</span><span class="ti">'+r.title+'<small>'+r.station+' · '+(SOURCES.find(s=>s.id===r.src)||{}).name+'</small></span><span class="rr" title="Zkusit naplánovat znovu ručně">↻</span><span class="pin" title="Automatické plánování zapnuto">📌</span><span class="rx" title="Zrušit připomínku">×</span>';
+    d.innerHTML='<span class="t">'+r.t+'</span><span class="ti">'+r.title+'<small>'+r.station+' · '+(SOURCES.find(s=>s.id===r.src)||{}).name+'</small></span><span class="rr" title="Zkusit naplánovat znovu ručně">↻</span><span class="recBtn'+(r.record?' on':'')+'" title="'+(r.record?'Zrušit nahrávání':'Přidat nahrávání')+'">⏺</span><span class="pin on" title="Automatické plánování zapnuto">📌</span><span class="rx" title="Zrušit připomínku">×</span>';
     d.querySelector('.rr').onclick=ev=>{ev.stopPropagation(); log('🔃 demo: ruční refresh — hledám „'+r.title+'“ v programu… (nenalezeno)');};
+    d.querySelector('.recBtn').onclick=ev=>{ev.stopPropagation(); r.record=!r.record; renderReminders(); log('⏺ demo připnutý plán: nahrávání '+(r.record?'zapnuto':'vypnuto'));};
     d.querySelector('.rx').onclick=ev=>{ev.stopPropagation(); demoFailedHidden=true; renderReminders(); log('⏰ demo ukázka skryta');};
     d.onclick=()=>log('stanice → '+r.station+' (demo)');
     w.appendChild(d);
@@ -1034,7 +1540,21 @@ function renderReminders(){
   keys.forEach(k=>{
     const r=reminders[k];
     const d=document.createElement('div'); d.className='remRow';
-    d.innerHTML='<span class="t">'+r.t+'</span><span class="ti">'+r.title+'<small>'+r.station+' · '+(SOURCES.find(s=>s.id===r.src)||{}).name+'</small></span><span class="rx" title="Zrušit připomínku">×</span>';
+    d.innerHTML='<span class="t">'+r.t+'</span><span class="ti">'+r.title+'<small>'+r.station+' · '+(SOURCES.find(s=>s.id===r.src)||{}).name+'</small></span><span class="recBtn'+(r.record?' on':'')+'" title="'+(r.record?'Zrušit nahrávání u tohoto plánu':'Přidat nahrávání k tomuto plánu')+'">⏺</span><span class="pin'+(r.pinned?' on':'')+'" title="'+(r.pinned?'Automatické plánování zapnuto':'Zapnout automatické plánování (připnout)')+'">📌</span><span class="rx" title="Zrušit připomínku">×</span>';
+    d.querySelector('.recBtn').onclick=ev=>{
+      ev.stopPropagation();
+      const st=(DATA[r.src]||[]).find(s=>s.name===r.station);
+      if(!st) return;
+      const oldSrc=curSrc; curSrc=r.src;
+      toggleRecordFor(st, [r.t, r.title, 0]);
+      curSrc=oldSrc;
+    };
+    d.querySelector('.pin').onclick=ev=>{
+      ev.stopPropagation();
+      r.pinned = !r.pinned;
+      saveReminders(); renderReminders();
+      log('📌 automatické plánování '+(r.pinned?'zapnuto':'vypnuto')+': '+r.title);
+    };
     d.querySelector('.rx').onclick=ev=>{ev.stopPropagation(); delete reminders[k]; saveReminders(); renderReminders(); renderEpg(DATA[curSrc][selIdx]); log('⏰ připomínka zrušena: '+r.title);};
     d.onclick=()=>{
       const si=(DATA[r.src]||[]).findIndex(s=>s.name===r.station);
@@ -1063,6 +1583,55 @@ function renderReminders(){
       h.addEventListener('pointermove',move); h.addEventListener('pointerup',up);
     });
   });
+})();
+/* Nastavení nahrávání + ovládací tlačítka modálů */
+(function(){
+  const codecEl = document.getElementById('recCodec');
+  const padEl = document.getElementById('recPad');
+  const dirEl = document.getElementById('recDir');
+  const fmtEl = document.getElementById('recFmt');
+  const prevEl = document.getElementById('recPrev');
+  function syncRecPrev(){
+    if(prevEl) prevEl.textContent = 'Náhled: ' + formatRecName('ČT1', 'Události', '19:00');
+  }
+  if(codecEl){ codecEl.value = recCfg.codec || 'ts'; codecEl.addEventListener('change', ()=>{ recCfg.codec = codecEl.value; saveRecCfg(); syncRecPrev(); log('formát nahrávání (demo): ' + codecEl.options[codecEl.selectedIndex].text); }); }
+  if(padEl){ padEl.value = recCfg.pad; padEl.addEventListener('input', ()=>{ recCfg.pad = Math.max(0, Math.min(120, +padEl.value || 0)); saveRecCfg(); }); }
+  if(dirEl){ dirEl.value = recCfg.dir; dirEl.addEventListener('input', ()=>{ recCfg.dir = dirEl.value; saveRecCfg(); }); }
+  if(fmtEl){ fmtEl.value = recCfg.fmt; fmtEl.addEventListener('input', ()=>{ recCfg.fmt = fmtEl.value; saveRecCfg(); syncRecPrev(); }); }
+  document.getElementById('btnRecDir').onclick = ()=>{
+    const picked = prompt('Výběr adresáře pro nahrávky (v aplikaci systémový dialog):', recCfg.dir);
+    if(picked !== null && picked.trim()){ recCfg.dir = picked.trim(); if(dirEl) dirEl.value = recCfg.dir; saveRecCfg(); log('📁 složka nahrávek: ' + recCfg.dir); }
+  };
+  document.querySelectorAll('#recTags .rcTag').forEach(tag => {
+    tag.onclick = ()=>{
+      const t = tag.dataset.tag;
+      if(!fmtEl) return;
+      const s = fmtEl.selectionStart ?? fmtEl.value.length, e = fmtEl.selectionEnd ?? fmtEl.value.length;
+      fmtEl.value = fmtEl.value.slice(0, s) + t + fmtEl.value.slice(e);
+      recCfg.fmt = fmtEl.value; saveRecCfg(); syncRecPrev(); fmtEl.focus();
+    };
+  });
+  syncRecPrev();
+  document.getElementById('btnRecColCancel').onclick = closeCollisionModal;
+  document.getElementById('btnRecColReplace').onclick = ()=>{
+    const fn = pendingCollisionAction; closeCollisionModal(); if(fn) fn();
+  };
+  document.getElementById('btnRecStopCancel').onclick = closeStopRecModal;
+  document.getElementById('btnRecStopConfirm').onclick = ()=>{
+    if(stopModalSrc && activeRec[stopModalSrc]){
+      const r = activeRec[stopModalSrc];
+      log('⏹ nahrávání ukončeno a uloženo: ' + r.filePath + ' (' + formatElapsed(r.elapsedSec) + ')');
+      activeRec[stopModalSrc] = null;
+    }
+    closeStopRecModal(); renderAll();
+  };
+  document.getElementById('btnRecHideStream').onclick = ()=>{
+    const r = activeRec[curSrc]; if(!r) return;
+    r.streamHidden = !r.streamHidden;
+    renderRecPanel();
+    log(r.streamHidden ? '👁 stream skryt (nahrává na pozadí)' : '👁 stream zobrazen');
+  };
+  document.getElementById('btnRecStop').onclick = ()=>openStopRecModal(curSrc);
 })();
 renderAll();
 log('prototyp v2 načten · zdroj '+srcOf().name);

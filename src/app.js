@@ -282,6 +282,17 @@ function checkReminders() {
       continue;
     }
     if (r.s <= now && (!r.e2 || now < r.e2)) {
+      if (activeRec[r.src]) continue; // probiha nahravani na stejnem zdroji → jiny plan nesmi bezet
+      if (r.record) {
+        const st = (liveChannels[r.src] || []).find((s) => chanKeyOf(s) === r.chan);
+        if (st) {
+          const p = { t: r.t, s: r.s, e2: r.e2, title: r.title };
+          if (r.pinned) planNext(k, { ...r, pinned: true, record: true });
+          else { delete reminders[k]; changed = true; }
+          startRecordingNow(r.src, st, p).catch(() => {});
+        }
+        continue;
+      }
       if (r.pinned) {
         // Pripnuto: hrat jen kdyz bezi jiny stream; jinak jen preplanovat (zustava v planu).
         const playing = video.classList.contains('on') && !paused && !video.paused && !video.ended;
@@ -351,7 +362,12 @@ async function restoreWinGeometry() {
 }
 document.getElementById('wMin').onclick = (e) => { e.stopPropagation(); if (invoke) invoke('win_minimize').catch(() => {}); };
 document.getElementById('wMax').onclick = (e) => { e.stopPropagation(); if (invoke) invoke('win_maximize_toggle').catch(() => {}); };
-document.getElementById('wClose').onclick = (e) => { e.stopPropagation(); if (invoke) invoke('win_close').catch(() => {}); };
+document.getElementById('wClose').onclick = (e) => {
+  e.stopPropagation();
+  const recSrc = Object.keys(activeRec).find((k) => activeRec[k]);
+  if (recSrc) { openStopRecModal(recSrc, true); return; }
+  if (invoke) invoke('win_close').catch(() => {});
+};
 // Sbaleni zdroju: sipka vlevo v radce s napovedou; sbalene jen ikony (vybrany s cervenym rameckem).
 let srcCollapsed = false;
 function syncSrcCollapsed() {
@@ -380,6 +396,327 @@ if (autostartChk && invoke) {
     }
   });
 }
+// ---------- Nahravani (HLS -> .ts pres Rust backend) ----------
+let recCfg = { codec: 'ts', pad: 10, dir: '', fmt: '{date}_{time}_{channel}_{title}' };
+try { Object.assign(recCfg, JSON.parse(localStorage.getItem('tvklient.recCfg') || '{}')); } catch {}
+const activeRec = { sltv: null, oneplay: null };
+let pendingCollisionAction = null, stopModalSrc = null, stopModalCloseApp = false;
+function saveRecCfg() {
+  try { localStorage.setItem('tvklient.recCfg', JSON.stringify(recCfg)); } catch {}
+  storeSet('recCfg', recCfg);
+}
+function sanitizeFile(s) { return String(s || '').replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '_'); }
+function formatRecName(stName, title, startMs) {
+  const d = startMs ? new Date(startMs) : new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  const date = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  const time = p(d.getHours()) + '-' + p(d.getMinutes());
+  const raw = (recCfg.fmt || '{date}_{time}_{channel}_{title}')
+    .replace(/\{date\}/g, date)
+    .replace(/\{time\}/g, time)
+    .replace(/\{channel\}/g, sanitizeFile(stName))
+    .replace(/\{title\}/g, sanitizeFile(title));
+  const ext = (recCfg.codec && recCfg.codec !== 'ts') ? '.mp4' : '.ts';
+  return sanitizeFile(raw) + ext;
+}
+function formatElapsed(sec) {
+  const s = Math.max(0, Math.floor(sec || 0));
+  const p = (n) => String(n).padStart(2, '0');
+  return p(Math.floor(s / 3600)) + ':' + p(Math.floor((s % 3600) / 60)) + ':' + p(s % 60);
+}
+function formatBytes(b) {
+  const mb = (b || 0) / (1024 * 1024);
+  if (mb >= 1024) return (mb / 1024).toFixed(2).replace('.', ',') + ' GB';
+  return mb.toFixed(1).replace('.', ',') + ' MB';
+}
+function fmtHm(ms) {
+  const d = new Date(ms), p = (n) => String(n).padStart(2, '0');
+  return p(d.getHours()) + ':' + p(d.getMinutes());
+}
+function findRecCollisions(src, startMs, endMs, excludeKey) {
+  const hits = [];
+  const ar = activeRec[src];
+  if (ar && startMs < ar.stopAt && ar.startMs < endMs) {
+    hits.push({ active: true, label: 'Právě nahrává: ' + ar.station + ' – ' + ar.title + ' (' + ar.start + ' – ' + ar.end + ' +' + ar.pad + ' min)' });
+  }
+  const padMs = (+recCfg.pad || 0) * 60000;
+  for (const [k, r] of Object.entries(reminders)) {
+    if (k === excludeKey || r.src !== src || !r.s) continue;
+    const baseEnd = r.e2 || (r.s + 3600000);
+    const re = baseEnd + (r.record ? padMs : 0);
+    if (startMs < re && r.s < endMs) {
+      const st = (liveChannels[src] || []).find((s) => chanKeyOf(s) === r.chan);
+      hits.push({
+        key: k,
+        label: (r.record ? '⏺ Nahrávání: ' : '⏰ Připomínka: ') + (st ? st.name : r.chan) + ' – ' + r.title +
+          ' (' + fmtHm(r.s) + ' – ' + fmtHm(baseEnd) + (r.record ? ' +' + recCfg.pad + ' min' : '') + ')',
+      });
+    }
+  }
+  return hits;
+}
+function openCollisionModal(newDesc, hits, onReplace) {
+  document.getElementById('recColNew').innerHTML = '<b>Nový požadavek:</b><br>' + newDesc;
+  document.getElementById('recColList').innerHTML = '<b>Koliduje s:</b><br>' + hits.map((h) => '• ' + h.label).join('<br>');
+  document.getElementById('btnRecColReplace').textContent = hits.some((h) => h.active) ? 'Zastavit běžící a nahradit' : 'Nahradit kolidující plán';
+  pendingCollisionAction = onReplace;
+  document.getElementById('recCollisionModal').classList.add('on');
+}
+function closeCollisionModal() {
+  document.getElementById('recCollisionModal').classList.remove('on');
+  pendingCollisionAction = null;
+}
+function openStopRecModal(src, closeApp = false) {
+  const r = activeRec[src]; if (!r) return;
+  stopModalSrc = src; stopModalCloseApp = closeApp;
+  document.getElementById('recStopText').textContent = closeApp
+    ? 'Probíhá nahrávání! Opravdu chceš ukončit nahrávání a zavřít aplikaci?'
+    : 'Opravdu chceš ukončit probíhající nahrávání? Dosavadní záznam bude uložen.';
+  document.getElementById('recStopInfo').innerHTML =
+    '<b>' + r.station + ' – ' + r.title + '</b><br>' +
+    'Nahráno: ' + formatElapsed(r.elapsedSec) + ' (' + formatBytes(r.bytes) + ')<br>' +
+    'Soubor: <span style="font-family:Consolas,monospace">' + r.filePath + '</span>';
+  document.getElementById('recStopModal').classList.add('on');
+}
+function closeStopRecModal() {
+  document.getElementById('recStopModal').classList.remove('on');
+  stopModalSrc = null; stopModalCloseApp = false;
+}
+async function stopRecordingNow(src) {
+  const r = activeRec[src];
+  activeRec[src] = null;
+  if (invoke) { try { await invoke('rec_stop', { src }); } catch {} }
+  if (video) video.muted = appMuted;
+  renderAll();
+  if (r) {
+    if (r.codec && r.codec !== 'ts' && invoke) {
+      log('🎞 překódovávám nahrávku (' + r.codec + ')…');
+      invoke('rec_transcode', { tsPath: r.tsPath, encoder: r.codec })
+        .then((outPath) => { log('⏹ nahrávka překódována a uložena: ' + outPath); toast('Nahrávka uložena: ' + outPath.split(/[\\/]/).pop(), 6000); })
+        .catch((err) => { log('překódování selhalo (ponechán .ts): ' + err); });
+    } else {
+      log('⏹ nahrávání ukončeno a uloženo: ' + r.filePath);
+    }
+  }
+}
+async function startRecordingNow(src, st, p) {
+  if (!invoke) return;
+  if (st.drm) return;
+  let url = st.streamUrl;
+  if (!url && st.opId) {
+    try {
+      const tok = await oneplayToken();
+      const m = await oneplayPlayUrl(tok, st.opId);
+      if (m.dashDrm && !m.hls) { log('nahrávání: DRM stream nelze nahrávat (' + st.name + ')'); return; }
+      url = m.hls || m.dash;
+      if (url) st.streamUrl = url;
+    } catch (e) { log('nahrávání selhalo (URL): ' + (e?.message || e)); return; }
+  } else if (!url) {
+    url = await fetchStreamUrl(st).catch(() => null);
+  }
+  if (!url) { toast('Nepodařilo se získat stream pro nahrávání.'); return; }
+  const dir = recCfg.dir || await invoke('default_rec_dir').catch(() => '.');
+  if (!recCfg.dir) { recCfg.dir = dir; const de = document.getElementById('recDir'); if (de) de.value = dir; saveRecCfg(); }
+  const startMs = p.s || Date.now();
+  const baseEnd = p.e2 || (startMs + 3600000);
+  const pad = +recCfg.pad || 0;
+  const stopAt = baseEnd + pad * 60000;
+  const codec = recCfg.codec || 'ts';
+  const file = formatRecName(st.name, p.title || 'Zaznam', startMs);
+  const tsFile = file.replace(/\.mp4$/i, '.ts');
+  const baseDir = dir.replace(/[\\/]+$/, '');
+  const tsPath = baseDir + '\\' + tsFile;
+  const filePath = baseDir + '\\' + file;
+  try {
+    await invoke('rec_start', { src, url, filePath: tsPath });
+  } catch (e) {
+    toast('Nahrávání se nepodařilo spustit: ' + e);
+    log('rec_start chyba: ' + e);
+    return;
+  }
+  activeRec[src] = {
+    src, station: st.name, ini: st.ini, color: st.color, logo: st.logo || null, img: p.img || null,
+    title: p.title || st.name, start: p.t || fmtHm(startMs), end: fmtHm(baseEnd),
+    startMs, baseEnd, stopAt, pad, codec, tsPath, elapsedSec: 0, bytes: 0, filePath, streamHidden: false,
+  };
+  if (src === curSrc) {
+    const si = channels().findIndex((x) => chanKeyOf(x) === chanKeyOf(st));
+    if (si >= 0) selIdx = si;
+    document.body.classList.remove('leftOpen');
+    paused = false;
+    applySelection(true);
+  }
+  renderAll();
+  log('⏺ spuštěno nahrávání: ' + st.name + ' – ' + (p.title || '') + ' → ' + file);
+}
+function toggleRecordFor(st, p, srcOverride) {
+  if (!st || st.drm) return;
+  const src = srcOverride || curSrc;
+  const k = remKey(src, st, p);
+  const nowMs = Date.now();
+  const isNow = p.s ? (p.s <= nowMs && nowMs <= (p.e2 || nowMs + 1)) : !!p.now;
+  const startMs = p.s || nowMs;
+  const baseEnd = p.e2 || (startMs + 3600000);
+  const padMs = (+recCfg.pad || 0) * 60000;
+  if (isNow) {
+    if (activeRec[src] && activeRec[src].station === st.name && activeRec[src].title === p.title) {
+      openStopRecModal(src, false);
+      return;
+    }
+    const hits = findRecCollisions(src, startMs, baseEnd + padMs, k);
+    const desc = '⏺ ' + st.name + ' – ' + p.title + ' (' + fmtHm(startMs) + ' – ' + fmtHm(baseEnd) + ' +' + recCfg.pad + ' min)';
+    if (hits.length) {
+      openCollisionModal(desc, hits, async () => {
+        if (activeRec[src]) await stopRecordingNow(src);
+        hits.forEach((h) => { if (h.key) delete reminders[h.key]; });
+        persistSoon();
+        await startRecordingNow(src, st, p);
+      });
+      return;
+    }
+    startRecordingNow(src, st, p);
+    return;
+  }
+  if (reminders[k] && reminders[k].record) {
+    reminders[k].record = false;
+    persistSoon(); renderAll();
+    log('⏺ nahrávání zrušeno u plánu: ' + p.title);
+    return;
+  }
+  const hits = findRecCollisions(src, startMs, baseEnd + padMs, k);
+  const desc = '⏺ ' + st.name + ' – ' + p.title + ' (' + fmtHm(startMs) + ' – ' + fmtHm(baseEnd) + ' +' + recCfg.pad + ' min)';
+  const apply = () => {
+    const prev = reminders[k] || {};
+    reminders[k] = { ...prev, src, chan: chanKeyOf(st), s: p.s, e2: p.e2, t: p.t, title: p.title, record: true };
+    persistSoon(); renderAll();
+    log('⏺ naplánováno nahrávání: ' + st.name + ' – ' + p.title + ' (' + p.t + ')');
+  };
+  if (hits.length) {
+    openCollisionModal(desc, hits, async () => {
+      if (activeRec[src]) await stopRecordingNow(src);
+      hits.forEach((h) => { if (h.key) delete reminders[h.key]; });
+      apply();
+    });
+    return;
+  }
+  apply();
+}
+function renderRecPanel() {
+  const r = activeRec[curSrc];
+  document.body.classList.toggle('recActive', !!r);
+  document.body.classList.toggle('recStreamHidden', !!(r && r.streamHidden));
+  if (video) video.muted = (r && r.streamHidden) ? true : appMuted;
+  if (!r) return;
+  const imgEl = document.getElementById('recThumb'), badgeEl = document.getElementById('recThumbBadge');
+  if (r.img) { imgEl.src = r.img; imgEl.className = 'recThumb'; imgEl.style.display = 'block'; badgeEl.style.display = 'none'; }
+  else if (r.logo) { imgEl.src = r.logo; imgEl.className = 'recThumb logo'; imgEl.style.display = 'block'; badgeEl.style.display = 'none'; }
+  else { imgEl.style.display = 'none'; badgeEl.textContent = r.ini || ''; badgeEl.style.background = r.color || '#334155'; badgeEl.style.display = 'flex'; }
+  const pct = r.baseEnd > r.startMs ? Math.max(0, Math.min(100, Math.round(((Date.now() - r.startMs) / (r.baseEnd - r.startMs)) * 100))) : 0;
+  document.getElementById('recStName').textContent = r.station;
+  document.getElementById('recProgTitle').textContent = r.title;
+  document.getElementById('recProgTime').textContent = r.start + ' – ' + r.end + ' (+' + r.pad + ' min)';
+  document.getElementById('recProgBar').style.width = pct + '%';
+  document.getElementById('recElapsed').textContent = formatElapsed(r.elapsedSec);
+  document.getElementById('recSize').textContent = formatBytes(r.bytes);
+  const fp = document.getElementById('recFilePath');
+  fp.textContent = r.filePath; fp.title = r.filePath;
+  document.getElementById('btnRecHideStream').textContent = r.streamHidden ? '👁 Zobrazit stream' : '👁 Skrýt stream';
+  document.getElementById('rhTitle').textContent = r.station + ' – ' + r.title;
+  document.getElementById('rhSub').textContent = 'Stream je skrytý · ' + formatElapsed(r.elapsedSec) + ' · ' + formatBytes(r.bytes);
+}
+setInterval(async () => {
+  if (!activeRec.sltv && !activeRec.oneplay) return;
+  if (invoke) {
+    try {
+      const st = await invoke('rec_status');
+      const now = Date.now();
+      for (const src of ['sltv', 'oneplay']) {
+        const r = activeRec[src];
+        if (!r) continue;
+        if (st && st[src]) {
+          r.elapsedSec = st[src].elapsedSec || 0;
+          r.bytes = st[src].bytes || 0;
+        }
+        if (r.stopAt && now >= r.stopAt) {
+          await stopRecordingNow(src);
+        }
+      }
+      if (activeRec[curSrc]) renderRecPanel();
+    } catch {}
+  }
+}, 1000);
+(function initRecUi() {
+  const codecEl = document.getElementById('recCodec');
+  const padEl = document.getElementById('recPad');
+  const dirEl = document.getElementById('recDir');
+  const fmtEl = document.getElementById('recFmt');
+  const prevEl = document.getElementById('recPrev');
+  function syncPrev() { if (prevEl) prevEl.textContent = 'Náhled: ' + formatRecName('ČT1', 'Události', Date.now()); }
+  function applyUi() {
+    if (codecEl && [...codecEl.options].some((o) => o.value === recCfg.codec)) codecEl.value = recCfg.codec;
+    if (padEl) padEl.value = recCfg.pad;
+    if (dirEl) dirEl.value = recCfg.dir;
+    if (fmtEl) fmtEl.value = recCfg.fmt;
+    syncPrev();
+  }
+  applyUi();
+  if (invoke && codecEl) {
+    invoke('rec_encoders').then((list) => {
+      if (!Array.isArray(list) || !list.length) return;
+      codecEl.innerHTML = '';
+      list.forEach((enc) => {
+        const opt = document.createElement('option');
+        opt.value = enc.id; opt.textContent = enc.label;
+        codecEl.appendChild(opt);
+      });
+      if (!list.some((e) => e.id === recCfg.codec)) recCfg.codec = list[0].id;
+      applyUi();
+    }).catch(() => {});
+  }
+  if (codecEl) codecEl.addEventListener('change', () => { recCfg.codec = codecEl.value; saveRecCfg(); syncPrev(); });
+  storeGet('recCfg').then((v) => {
+    if (v && typeof v === 'object') { Object.assign(recCfg, v); applyUi(); }
+    if (!recCfg.dir && invoke) {
+      invoke('default_rec_dir').then((d) => { if (d && !recCfg.dir) { recCfg.dir = d; applyUi(); saveRecCfg(); } }).catch(() => {});
+    }
+  }).catch(() => {});
+  if (padEl) padEl.addEventListener('input', () => { recCfg.pad = Math.max(0, Math.min(120, +padEl.value || 0)); saveRecCfg(); });
+  if (dirEl) dirEl.addEventListener('input', () => { recCfg.dir = dirEl.value; saveRecCfg(); });
+  if (fmtEl) fmtEl.addEventListener('input', () => { recCfg.fmt = fmtEl.value; saveRecCfg(); syncPrev(); });
+  const btnDir = document.getElementById('btnRecDir');
+  if (btnDir) btnDir.onclick = async () => {
+    if (!invoke) return;
+    try {
+      const picked = await invoke('pick_folder', { initial: recCfg.dir || null });
+      if (picked) { recCfg.dir = picked; if (dirEl) dirEl.value = picked; saveRecCfg(); log('📁 složka nahrávek: ' + picked); }
+    } catch (e) { log('výběr složky selhal: ' + e); }
+  };
+  document.querySelectorAll('#recTags .rcTag').forEach((tag) => {
+    tag.onclick = () => {
+      if (!fmtEl) return;
+      const t = tag.dataset.tag;
+      const s = fmtEl.selectionStart ?? fmtEl.value.length, e = fmtEl.selectionEnd ?? fmtEl.value.length;
+      fmtEl.value = fmtEl.value.slice(0, s) + t + fmtEl.value.slice(e);
+      recCfg.fmt = fmtEl.value; saveRecCfg(); syncPrev(); fmtEl.focus();
+    };
+  });
+  document.getElementById('btnRecColCancel').onclick = closeCollisionModal;
+  document.getElementById('btnRecColReplace').onclick = () => { const fn = pendingCollisionAction; closeCollisionModal(); if (fn) fn(); };
+  document.getElementById('btnRecStopCancel').onclick = closeStopRecModal;
+  document.getElementById('btnRecStopConfirm').onclick = async () => {
+    const src = stopModalSrc, closeApp = stopModalCloseApp;
+    closeStopRecModal();
+    if (src) await stopRecordingNow(src);
+    if (closeApp && invoke) invoke('win_close').catch(() => {});
+  };
+  document.getElementById('btnRecHideStream').onclick = () => {
+    const r = activeRec[curSrc]; if (!r) return;
+    r.streamHidden = !r.streamHidden;
+    renderRecPanel();
+    log(r.streamHidden ? '👁 stream skryt (nahrává na pozadí)' : '👁 stream zobrazen');
+  };
+  document.getElementById('btnRecStop').onclick = () => openStopRecModal(curSrc, false);
+})();
 // Hlasitost streamu: funkcni, pamatuje se.
 let appVol = 80, appMuted = false;
 function applyVol() {
@@ -409,7 +746,7 @@ document.getElementById('btnHelp').onmouseenter = (e) => {
   if (!pop) return;
   pop.classList.add('on');
   const panelW = document.getElementById('panelR').offsetWidth || 350;
-  pop.style.left = Math.max(8, window.innerWidth - panelW - 10 - 300) + 'px';
+  pop.style.left = Math.max(8, window.innerWidth - panelW - 10 - 520) + 'px';
   const r = e.target.getBoundingClientRect();
   const ph = pop.offsetHeight || 420;
   pop.style.top = Math.max(8, Math.min(r.top - 40, window.innerHeight - ph - 8)) + 'px';
@@ -424,8 +761,9 @@ document.addEventListener('keydown', (e) => {
   if (tag === 'button') return;
   if (e.key === ' ') { e.preventDefault(); if (currentStation()) togglePause(); }
   else if (e.key === 'f' || e.key === 'F') toggleMax();
-  else if (e.key === 'Escape') { cancelBottomClose(); document.body.classList.remove('rightOpen', 'leftOpen', 'bottomOpen'); hideEpgPop(); hideProgDetail(); closeLoginModal(); }
+  else if (e.key === 'Escape') { cancelBottomClose(); document.body.classList.remove('rightOpen', 'leftOpen', 'bottomOpen'); hideEpgPop(); hideProgDetail(); closeLoginModal(); closeCollisionModal(); closeStopRecModal(); }
   else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (activeRec[curSrc]) return;
     const list = channels();
     if (!list.length) return;
     selIdx = (selIdx + (e.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length;
@@ -483,13 +821,84 @@ function humSchedule() {
   }, 4000 + Math.random() * 11000);
 }
 humSchedule();
-// Detekce probuzeni ze sleepu: casovy skok od posledniho tiku (+navrat site) spusti celkovou obnovu.
-let lastTick = Date.now(), recovering = false;
+// Detekce probuzeni ze sleepu + obecna detekce vypadku site s opakovany pokusem o pripojeni.
+let lastTick = Date.now(), recovering = false, pendingWake = null;
+let netOffline = false, netPollT = null, netAttempt = 0, netCountdown = 5, netProbing = false;
+async function checkNetOnline() {
+  if (!navigator.onLine) return false;
+  if (!invoke) return navigator.onLine;
+  try {
+    return !!(await invoke('net_check'));
+  } catch {
+    return false;
+  }
+}
+function updateOfflineMeta() {
+  const meta = document.getElementById('offlineMeta');
+  if (!meta) return;
+  meta.textContent = netProbing
+    ? ('Pokus č. ' + netAttempt + ' · ověřuji síť…')
+    : ('Pokus č. ' + netAttempt + ' · další za ' + netCountdown + ' s');
+}
+async function probeReconnect() {
+  if (!netOffline || netProbing) return;
+  netProbing = true;
+  updateOfflineMeta();
+  const ok = await checkNetOnline();
+  netProbing = false;
+  if (!netOffline) return;
+  if (ok) {
+    exitOffline();
+  } else {
+    netAttempt++;
+    netCountdown = 5;
+    updateOfflineMeta();
+  }
+}
+function enterOffline(reason) {
+  if (netOffline) return;
+  netOffline = true;
+  netAttempt = 1;
+  netCountdown = 5;
+  netProbing = false;
+  noiseOn = true;
+  document.body.classList.add('offline');
+  updateOfflineMeta();
+  log('výpadek sítě (' + reason + ') — zkouším se znovu připojit…');
+  diag('enterOffline(' + reason + ')');
+  clearInterval(netPollT);
+  netPollT = setInterval(() => {
+    if (!netOffline || netProbing) return;
+    netCountdown--;
+    if (netCountdown <= 0) probeReconnect();
+    else updateOfflineMeta();
+  }, 1000);
+}
+function exitOffline() {
+  if (!netOffline) return;
+  netOffline = false;
+  clearInterval(netPollT); netPollT = null;
+  document.body.classList.remove('offline');
+  if (video.classList.contains('on')) { noiseOn = false; syncStageVideo(); }
+  log('síť obnovena — spouštím obnovu…');
+  diag('exitOffline()');
+  wakeRecovery('net-back');
+}
 async function wakeRecovery(reason) {
-  if (recovering || document.hidden || (!authMeta.sltv && !authMeta.oneplay)) return;
+  if (document.hidden || (!authMeta.sltv && !authMeta.oneplay)) return;
+  if (recovering) { pendingWake = reason; return; }
   recovering = true;
   diag('wakeRecovery(' + reason + ') start, online=' + navigator.onLine);
   try {
+    if (!(await checkNetOnline())) {
+      enterOffline(reason);
+      return;
+    }
+    if (netOffline) {
+      netOffline = false;
+      clearInterval(netPollT); netPollT = null;
+      document.body.classList.remove('offline');
+    }
     log('probuzení (' + reason + ') — obnovuji…');
     const jobs = [];
     if (authMeta.sltv && !authMeta.sltv.manual) jobs.push((async () => {
@@ -503,23 +912,32 @@ async function wakeRecovery(reason) {
     })());
     await Promise.all(jobs);
     persistCache(); renderAll();
-    // Mrtvy stream po spanku: tichy reload (drzi 'on' pro watchdog — hlasity applySelection
-    // by pri nedostupne siti zavolal renderIdle a uz by to nikdo nikdy nezkusil znovu).
+    // Mrtvy stream po spanku: tichy reload (drzi 'on' — hlasity applySelection
+    // by pri nedostupne siti zavolal renderIdle a zahodil stav).
     const st = currentStation();
     diag('wakeRecovery: jobs hotovy, st=' + (st ? st.name : '-') + ' paused=' + paused);
     if (st && !paused && (st.streamUrl || st.opId)) {
       await reloadQuiet();
       diag('wakeRecovery: reloadQuiet hotov');
-      log('stream po probuzení předán watchdogu');
     }
-  } finally { recovering = false; }
+  } finally {
+    recovering = false;
+    if (pendingWake) {
+      const next = pendingWake; pendingWake = null;
+      setTimeout(() => wakeRecovery(next), 200);
+    }
+  }
 }
 document.addEventListener('visibilitychange', () => {
   diag('visibility: ' + document.visibilityState + ' gap=' + Math.round((Date.now() - lastTick) / 1000) + 's');
   if (document.visibilityState !== 'hidden' && Date.now() - lastTick > 3 * 60e3) wakeRecovery('sleep');
 });
-window.addEventListener('online', () => { diag('online event'); wakeRecovery('online'); });
-window.addEventListener('offline', () => { diag('offline event'); });
+window.addEventListener('online', () => {
+  diag('online event');
+  if (netOffline) probeReconnect();
+  else wakeRecovery('online');
+});
+window.addEventListener('offline', () => { diag('offline event'); enterOffline('offline'); });
 // Text poradu a progress se meni v case: kazdou minutu prekreslit, EPG dotahnout kazdych 15 minut.
 // Hlidaci pes mrtveho streamu kazdych 10 s (minutovy prekres textu zustava na minute).
 // Ma se hrat, ale video stoji → znovu od zive hrany, dokud se sit nevrati.
@@ -565,7 +983,7 @@ setInterval(() => {
       window.__pausedImgRetry = Date.now();
       const pst = currentStation();
       if (pst) fetchStreamUrl(pst).then((url) => {
-        if (url && paused && !video.src) { video.src = url; noiseOn = false; syncStageVideo(); renderStage(); log('obraz připraven (pauza, dodatečně)'); }
+        if (url && paused && !video.src) { video.src = url; video.classList.add('on'); noiseOn = false; syncStageVideo(); renderStage(); log('obraz připraven (pauza, dodatečně)'); }
       }).catch(() => {});
     }
   }
@@ -605,8 +1023,10 @@ function stopStream() {
 // Stav prehravace na stage se musi synchronizovat V MOMENTE startu videa,
 // ne jen v renderStage (ta bezi driv, nez video dostane 'on').
 function syncStageVideo() {
-  stage.classList.toggle('hasvideo', video.classList.contains('on'));
-  if (video.classList.contains('on')) {
+  const hasVid = video.classList.contains('on');
+  stage.classList.toggle('hasvideo', hasVid);
+  if (!hasVid) { noiseOn = true; }
+  if (hasVid) {
     for (const id of ['humbar1', 'humbar2']) {
       const el = document.getElementById(id);
       if (el) { try { el.getAnimations().forEach((a) => a.cancel()); } catch {} el.style.display = 'none'; }
@@ -634,14 +1054,20 @@ async function playStation(st, quiet = true) {
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (!data?.fatal) return;
         log('HLS chyba: ' + (data.details || 'fatal'));
-        if (quiet) { video.classList.add('on'); syncStageVideo(); } // drzet pro watchdog retry
+        if (data.type === 'networkError') {
+          checkNetOnline().then((ok) => { if (!ok) enterOffline('hls-net'); });
+        }
+        if (quiet) { video.classList.add('on'); syncStageVideo(); } // drzet stav pro dalsi pokus
         else { toast('Stream se nepodařilo přehrát (' + (data.details || 'chyba') + ').'); renderIdle(); }
       });
-      if (!paused) video.play().catch(() => { paused = true; renderStage(); });
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        if (!paused) video.play().catch(() => { if (!quiet) { paused = true; renderStage(); } });
+      });
+      if (!paused) video.play().catch(() => {});
       log('HLS → ' + st.name);
     } else {
       video.src = url;
-      if (!paused) await video.play().catch(() => { paused = true; renderStage(); });
+      if (!paused) await video.play().catch(() => { if (!quiet) { paused = true; renderStage(); } });
       log('nativní video → ' + st.name);
     }
     everPlayed = true;
@@ -720,6 +1146,24 @@ function renderBottomBar(st) {
   if (pct !== null) { bar.style.display = ''; $('#nbBarFill').style.width = pct + '%'; }
   else bar.style.display = 'none';
   $('#nbDesc').textContent = (p && p.desc) || 'Bez popisu.';
+  const recBtn = document.getElementById('nbRecBtn');
+  if (recBtn) {
+    if (st.drm) {
+      recBtn.style.display = 'none';
+    } else {
+      const isRec = !!activeRec[curSrc];
+      recBtn.style.display = '';
+      recBtn.classList.toggle('on', isRec);
+      recBtn.textContent = isRec ? '⏹ Zastavit' : '⏺ Nahrávat';
+      recBtn.title = isRec ? 'Zastavit probíhající nahrávání' : 'Nahrávat běžící pořad';
+      recBtn.onclick = (ev) => {
+        ev.stopPropagation();
+        if (activeRec[curSrc]) { openStopRecModal(curSrc, false); return; }
+        const prog = p || { t: fmtHm(nowMs), s: nowMs, e2: nowMs + 3600000, title: title || st.name, now: true };
+        toggleRecordFor(st, prog);
+      };
+    }
+  }
 }
 function updateBottomClock() {
   const now = new Date();
@@ -763,11 +1207,15 @@ function renderEpg(st) {
     d.className = 'ep' + (isNow ? ' now' : '');
     // Bez nativniho title tooltipu — popis ukazuje plovouci detail.
     const marked = !!reminders[remKey(curSrc, st, p)];
+    const recOn = !!(reminders[remKey(curSrc, st, p)] && reminders[remKey(curSrc, st, p)].record) || !!(activeRec[curSrc] && activeRec[curSrc].station === st.name && activeRec[curSrc].title === p.title);
     // Zvonecek jen u poradu, ktere jeste nezacaly (bezici/minule naplanovat nejde).
     const upcoming = p.s && p.s > nowMs;
+    const canRec = !st.drm && (isNow || upcoming);
     d.innerHTML = '<span class="t">' + p.t + '</span><span class="ti">' + p.title + (isNow ? '<span class="live">LIVE</span>' : '') + '</span>'
+      + (canRec ? '<span class="recBtn' + (recOn ? ' on' : '') + '" title="' + (isNow ? 'Nahrávat hned' : 'Naplánovat nahrávání') + '">⏺</span>' : '')
       + (upcoming ? '<span class="rem' + (marked ? ' on' : '') + '" title="Připomenout a v daný čas přepnout">⏰</span>' : '')
       + (isNow && pctLive !== null ? '<div class="epProg"><div style="width:' + pctLive + '%"></div></div>' : '');
+    if (canRec) d.querySelector('.recBtn').onclick = (ev) => { ev.stopPropagation(); toggleRecordFor(st, p); };
     if (upcoming) d.querySelector('.rem').onclick = (ev) => { ev.stopPropagation(); toggleReminder(st, p); };
     d.onclick = (ev) => {
       ev.stopPropagation();
@@ -794,11 +1242,12 @@ function renderSources() {
   SOURCES.forEach((s) => {
     const a = authMeta[s.id];
     const n = (liveChannels[s.id] || []).length;
+    const isRec = !!activeRec[s.id];
     const card = document.createElement('div');
-    card.className = 'srcCard' + (s.id === curSrc ? ' active' : '');
-    const tip = s.name + (a ? (' · ' + (a.profileName || (n ? n + ' stanic' : 'přihlášeno'))) : ' · nepřihlášeno');
+    card.className = 'srcCard' + (s.id === curSrc ? ' active' : '') + (isRec ? ' recording' : '');
+    const tip = s.name + (a ? (' · ' + (a.profileName || (n ? n + ' stanic' : 'přihlášeno'))) : ' · nepřihlášeno') + (isRec ? ' · NAHRÁVÁ' : '');
     card.innerHTML =
-      '<div class="srcTop"><div class="srcLogo plain" title="' + tip + '"><img src="' + s.logo + '" alt="' + s.name + '"></div></div>' +
+      '<div class="srcTop"><div class="srcLogo plain" title="' + tip + '"><img src="' + s.logo + '" alt="' + s.name + '">' + (isRec ? '<span class="recBadge"><span class="recDot"></span>REC</span>' : '') + '</div></div>' +
       (connecting[s.id]
         ? '<div class="srcBtns"><div class="connNote">Připojuji…</div></div>'
         : '<div class="srcBtns"><button class="btn ' + (a ? '' : 'primary') + '">' + (a ? 'Odhlásit' : 'Přihlásit') + '</button></div>');
@@ -904,7 +1353,7 @@ function renderStations() {
     w.appendChild(r);
   });
 }
-function renderAll() { renderSources(); renderFavs(); renderReminders(); renderStations(); renderStage(); updatePin(); }
+function renderAll() { renderSources(); renderFavs(); renderReminders(); renderRecPanel(); renderStations(); renderStage(); updatePin(); }
 const CZ_MONTHS = ['led', 'úno', 'bře', 'dub', 'kvě', 'čen', 'čec', 'srp', 'zář', 'říj', 'lis', 'pro'];
 function shortDate(ms) {
   const d = new Date(ms);
@@ -952,7 +1401,7 @@ function planNext(key, r) {
   delete r.failed; delete r.retryAt;
   delete reminders[key];
   const nk = r.src + '|' + r.chan + '|' + (p.id || ('s' + p.s));
-  reminders[nk] = { src: r.src, chan: r.chan, id: p.id || ('s' + p.s), title: p.title, t: p.t, s: p.s, e2: p.e2, pinned: true, failed: false };
+  reminders[nk] = { src: r.src, chan: r.chan, id: p.id || ('s' + p.s), title: p.title, t: p.t, s: p.s, e2: p.e2, pinned: true, record: !!r.record, failed: false };
   persistSoon(); renderReminders();
   const cur = currentStation(); if (cur) renderEpg(cur);
   toast('⏰ Přeplánováno na ' + p.t + ' (' + shortDate(p.s) + ')', 8000);
@@ -985,10 +1434,18 @@ function renderReminders() {
     const d = document.createElement('div');
     d.className = 'remRow' + (old ? ' old' : '');
     if (r.failed) d.className += ' failed';
+    const stObj = (liveChannels[r.src] || []).find((s) => chanKeyOf(s) === r.chan) || null;
+    const canRec = !(stObj && stObj.drm);
     d.innerHTML = '<span class="t">' + (r.t || '') + dateHtml + '</span><span class="ti">' + r.title + '<small>' + stName + '</small></span>'
       + (r.failed ? '<span class="rr" title="Zkusit naplánovat znovu ručně">↻</span>' : '')
+      + (canRec ? '<span class="recBtn' + (r.record ? ' on' : '') + '" title="' + (r.record ? 'Zrušit nahrávání' : 'Přidat nahrávání') + '">⏺</span>' : '')
       + '<span class="rp' + (r.pinned ? ' on' : '') + '" title="Připnout automatické plánování">📌</span>'
       + '<span class="rx" title="Zrušit připomínku">×</span>';
+    if (canRec) d.querySelector('.recBtn').onclick = (ev) => {
+      ev.stopPropagation();
+      if (!stObj) return;
+      toggleRecordFor(stObj, { t: r.t, s: r.s, e2: r.e2, title: r.title }, r.src);
+    };
     if (r.failed) d.querySelector('.rr').onclick = (ev) => {
       ev.stopPropagation();
       if (!planNext(k, r)) toast('Podobný pořad v programu není.', 6000);
@@ -1162,6 +1619,7 @@ async function resumeLive() {
   return video.play().catch(() => {});
 }
 function togglePause() {
+  if (activeRec[curSrc]) return;
   if (!currentStation() && !video.classList.contains('on')) return;
   paused = !paused;
   if (video.classList.contains('on')) { if (paused) { wantPlay = false; video.pause(); } else resumeLive(); }
@@ -1235,8 +1693,8 @@ function cancelBottomClose() {
 document.addEventListener('mousemove', (e) => {
   lastMX = e.clientX;
   if (e.clientX >= window.innerWidth - 24) { clearTimeout(hideT); document.body.classList.add('rightOpen'); }
-  // Levy panel jen kdyz je pro stanici program — bez dat se vubec neotevira.
-  else if (e.clientX <= 24 && currentStation() && epgRowsFor(currentStation()).length) { clearTimeout(hideT); document.body.classList.add('leftOpen'); }
+  // Levy panel jen kdyz je pro stanici program a na zdroji nebezi nahravani.
+  else if (e.clientX <= 24 && !activeRec[curSrc] && currentStation() && epgRowsFor(currentStation()).length) { clearTimeout(hideT); document.body.classList.add('leftOpen'); }
   // Dolni lista s informacemi o bezicim poradu: drzi se otevrena v cele sve vysce bez ohledu na osu X.
   const st = currentStation();
   if (st) {
@@ -1372,10 +1830,18 @@ function showEpgPop(row, st) {
     const d = document.createElement('div');
     d.className = 'ep' + (p.now ? ' now' : '');
     const marked = !!reminders[remKey(curSrc, st, p)];
+    const recOn = !!(reminders[remKey(curSrc, st, p)] && reminders[remKey(curSrc, st, p)].record) || !!(activeRec[curSrc] && activeRec[curSrc].station === st.name && activeRec[curSrc].title === p.title);
     const upcoming = p.s && p.s > nowMs;
+    const canRec = !st.drm && (!!p.now || upcoming);
     d.innerHTML = '<span class="t">' + (p.t || '') + '</span><span class="ti">' + p.title + (p.now ? '<span class="live">LIVE</span>' : '') + '</span>'
+      + (canRec ? '<span class="recBtn' + (recOn ? ' on' : '') + '" title="' + (p.now ? 'Nahrávat hned' : 'Naplánovat nahrávání') + '">⏺</span>' : '')
       + (upcoming ? '<span class="rem' + (marked ? ' on' : '') + '" title="Připomenout a v daný čas přepnout">⏰</span>' : '')
       + (p.now && p.pct !== null ? '<div class="epProg"><div style="width:' + p.pct + '%"></div></div>' : '');
+    if (canRec) d.querySelector('.recBtn').onclick = (ev) => {
+      ev.stopPropagation();
+      toggleRecordFor(st, p);
+      ev.target.classList.toggle('on', !!(reminders[remKey(curSrc, st, p)] && reminders[remKey(curSrc, st, p)].record));
+    };
     if (upcoming) d.querySelector('.rem').onclick = (ev) => {
       ev.stopPropagation();
       toggleReminder(st, p);
@@ -2080,6 +2546,13 @@ async function restore() {
         log('build: ' + APP_BUILD);
         const tag = document.getElementById('buildTag');
         if (tag) tag.textContent = 'build ' + APP_BUILD;
+        const hv = document.getElementById('helpVer');
+        const hd = document.getElementById('helpDate');
+        if (hv) hv.innerHTML = '<b>TV Client</b> · v' + b.version;
+        if (hd && b.time) {
+          const d = new Date(Number(b.time) * 1000);
+          hd.textContent = isNaN(d.getTime()) ? ('Release: ' + b.time) : ('Release: ' + d.getDate() + '. ' + (d.getMonth() + 1) + '. ' + d.getFullYear());
+        }
       } catch {}
     }
   } catch (e) { toast('Diagnostika úložiště selhala: ' + (e?.message || e), 12000); }
@@ -2162,6 +2635,14 @@ async function restore() {
     if (paused) return;
     autoplayed = true;
     try { await applySelection(true); } catch {}
+    if (!video.classList.contains('on') && !paused) {
+      // Prechodne selhani (napr. Oneplay content.play pri startu): jeden tichy retry po 3 s.
+      setTimeout(async () => {
+        if (video.classList.contains('on') || paused || curSrc !== src) return;
+        if (!(await checkNetOnline())) { enterOffline('boot'); return; }
+        try { await applySelection(true); } catch {}
+      }, 3000);
+    }
   }
   // Tiche obnoveni sezeni (trezor): oba zdroje paralelne, kazdy s vlastnim stavem pripojovani.
   async function bootSltv() {
@@ -2272,7 +2753,7 @@ async function restore() {
     video.classList.add('on'); syncStageVideo(); renderStage();
     (async () => {
       const url = await fetchStreamUrl(st);
-      if (url) { video.src = url; noiseOn = false; syncStageVideo(); renderStage(); log('obraz připraven (pauza)'); }
+      if (url) { video.src = url; video.classList.add('on'); noiseOn = false; syncStageVideo(); renderStage(); log('obraz připraven (pauza)'); }
       else log('obraz v pauze se nepodařilo připravit');
     })().catch(() => {});
   }
