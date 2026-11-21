@@ -1,16 +1,32 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 struct RecJob {
     stop: Arc<AtomicBool>,
+    reconnecting: Arc<AtomicBool>,
     bytes: Arc<AtomicU64>,
+    segs_done: Arc<AtomicU64>,
+    segs_total: Arc<AtomicU64>,
+    active_ms: Arc<AtomicU64>,
     started: Instant,
     file_path: String,
+}
+
+struct ConvJob {
+    started: Instant,
+    total_sec: u64,
+    done_sec: Arc<AtomicU64>,
+}
+
+fn conv_jobs() -> &'static Mutex<HashMap<String, ConvJob>> {
+    static CONV: OnceLock<Mutex<HashMap<String, ConvJob>>> = OnceLock::new();
+    CONV.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn jobs() -> &'static Mutex<HashMap<String, RecJob>> {
@@ -80,7 +96,14 @@ async fn resolve_media_playlist(client: &reqwest::Client, url: &str) -> Result<S
 }
 
 #[tauri::command]
-pub async fn rec_start(src: String, url: String, file_path: String) -> Result<String, String> {
+pub async fn rec_start(
+    src: String,
+    url: String,
+    file_path: String,
+    from_start: Option<bool>,
+    extra_url: Option<String>,
+    extra_secs: Option<u64>,
+) -> Result<String, String> {
     if src.is_empty() || url.is_empty() || file_path.is_empty() {
         return Err("Chybí parametry nahrávání.".to_string());
     }
@@ -104,13 +127,21 @@ pub async fn rec_start(src: String, url: String, file_path: String) -> Result<St
     }
 
     let stop = Arc::new(AtomicBool::new(false));
+    let reconnecting = Arc::new(AtomicBool::new(false));
     let bytes = Arc::new(AtomicU64::new(0));
+    let segs_done = Arc::new(AtomicU64::new(0));
+    let segs_total = Arc::new(AtomicU64::new(0));
+    let active_ms = Arc::new(AtomicU64::new(0));
     if let Ok(mut map) = jobs().lock() {
         map.insert(
             src.clone(),
             RecJob {
                 stop: stop.clone(),
+                reconnecting: reconnecting.clone(),
                 bytes: bytes.clone(),
+                segs_done: segs_done.clone(),
+                segs_total: segs_total.clone(),
+                active_ms: active_ms.clone(),
                 started: Instant::now(),
                 file_path: file_path.clone(),
             },
@@ -119,7 +150,11 @@ pub async fn rec_start(src: String, url: String, file_path: String) -> Result<St
     update_awake_state();
 
     let stop_bg = stop.clone();
+    let reconn_bg = reconnecting.clone();
     let bytes_bg = bytes.clone();
+    let done_bg = segs_done.clone();
+    let total_bg = segs_total.clone();
+    let active_bg = active_ms.clone();
     let src_bg = src.clone();
     tokio::spawn(async move {
         let Ok(client) = reqwest::Client::builder()
@@ -134,15 +169,18 @@ pub async fn rec_start(src: String, url: String, file_path: String) -> Result<St
             .unwrap_or_else(|_| url.clone());
         let mut seen: HashSet<String> = HashSet::new();
         let mut wrote_init = false;
-        let mut first_poll = true;
+        let mut first_poll = !from_start.unwrap_or(false);
         let mut last_seq: Option<u64> = None;
 
         while !stop_bg.load(Ordering::Relaxed) {
             let playlist_res = client.get(&media_url).send().await;
+            let mut poll_ok = false;
             if let Ok(resp) = playlist_res {
                 let base = resp.url().clone();
                 if resp.status().is_success() {
                     if let Ok(text) = resp.text().await {
+                        poll_ok = true;
+                        reconn_bg.store(false, Ordering::Relaxed);
                         if text.contains("#EXT-X-STREAM-INF") {
                             if let Ok(resolved) = resolve_media_playlist(&client, base.as_str()).await {
                                 media_url = resolved;
@@ -185,10 +223,17 @@ pub async fn rec_start(src: String, url: String, file_path: String) -> Result<St
                                     segs.push(seg_url.to_string());
                                 }
                             }
+                            let is_vod = text.contains("#EXT-X-ENDLIST");
+                            if is_vod {
+                                let extra_est = if extra_url.is_some() { extra_secs.unwrap_or(0) / 4 } else { 0 };
+                                total_bg.store(segs.len() as u64 + extra_est, Ordering::Relaxed);
+                            }
                             let skip_first = if first_poll && segs.len() > 2 { segs.len() - 2 } else { 0 };
                             first_poll = false;
+                            let mut all_ok = true;
                             for (idx, seg_str) in segs.into_iter().enumerate() {
                                 if stop_bg.load(Ordering::Relaxed) {
+                                    all_ok = false;
                                     break;
                                 }
                                 let seq = media_seq.map(|m| m + idx as u64);
@@ -207,29 +252,92 @@ pub async fn rec_start(src: String, url: String, file_path: String) -> Result<St
                                 if seen.contains(&seg_str) {
                                     continue;
                                 }
-                                seen.insert(seg_str.clone());
-                                if let Some(s) = seq {
-                                    last_seq = Some(last_seq.map_or(s, |prev| prev.max(s)));
-                                }
-                                if let Ok(seg_resp) = client.get(&seg_str).send().await {
-                                    if seg_resp.status().is_success() {
+                                let seg_t0 = Instant::now();
+                                let seg_ok = match client.get(&seg_str).send().await {
+                                    Ok(seg_resp) if seg_resp.status().is_success() => {
                                         if let Ok(data) = seg_resp.bytes().await {
-                                            if let Ok(mut f) = OpenOptions::new()
-                                                .create(true)
-                                                .append(true)
-                                                .open(&path)
-                                            {
+                                            if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
                                                 if f.write_all(&data).is_ok() {
                                                     bytes_bg.fetch_add(data.len() as u64, Ordering::Relaxed);
+                                                    done_bg.fetch_add(1, Ordering::Relaxed);
+                                                    let dt = (seg_t0.elapsed().as_millis() as u64).min(10_000);
+                                                    active_bg.fetch_add(dt, Ordering::Relaxed);
+                                                    true
+                                                } else { false }
+                                            } else { false }
+                                        } else { false }
+                                    }
+                                    _ => false,
+                                };
+                                if seg_ok {
+                                    reconn_bg.store(false, Ordering::Relaxed);
+                                    seen.insert(seg_str);
+                                    if let Some(s) = seq {
+                                        last_seq = Some(last_seq.map_or(s, |prev| prev.max(s)));
+                                    }
+                                } else {
+                                    // Výpadek sítě nebo probuzení PC: přerušit aktuální průchod a zkusit znovu od stejného segmentu.
+                                    reconn_bg.store(true, Ordering::Relaxed);
+                                    all_ok = false;
+                                    break;
+                                }
+                            }
+                            if is_vod && from_start.unwrap_or(false) && all_ok {
+                                // Přidat přesah (+N minut) ze začátku následujícího pořadu, pokud je k dispozici.
+                                if let (Some(ref ex_url), Some(ex_sec)) = (&extra_url, extra_secs) {
+                                    if ex_sec > 0 && !stop_bg.load(Ordering::Relaxed) {
+                                        if let Ok(ex_media) = resolve_media_playlist(&client, ex_url).await {
+                                            if let Ok(er) = client.get(&ex_media).send().await {
+                                                let ex_base = er.url().clone();
+                                                if er.status().is_success() {
+                                                    if let Ok(ex_txt) = er.text().await {
+                                                        let mut acc: f64 = 0.0;
+                                                        let mut next_dur: f64 = 4.0;
+                                                        for raw in ex_txt.lines() {
+                                                            if stop_bg.load(Ordering::Relaxed) || acc >= ex_sec as f64 {
+                                                                break;
+                                                            }
+                                                            let line = raw.trim();
+                                                            if let Some(d) = line.strip_prefix("#EXTINF:") {
+                                                                next_dur = d.split(',').next().and_then(|v| v.trim().parse::<f64>().ok()).unwrap_or(4.0);
+                                                                continue;
+                                                            }
+                                                            if line.is_empty() || line.starts_with('#') {
+                                                                continue;
+                                                            }
+                                                            if let Ok(seg_u) = ex_base.join(line) {
+                                                                let ex_t0 = Instant::now();
+                                                                if let Ok(sr) = client.get(seg_u).send().await {
+                                                                    if sr.status().is_success() {
+                                                                        if let Ok(data) = sr.bytes().await {
+                                                                            if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
+                                                                                if f.write_all(&data).is_ok() {
+                                                                                    bytes_bg.fetch_add(data.len() as u64, Ordering::Relaxed);
+                                                                                    done_bg.fetch_add(1, Ordering::Relaxed);
+                                                                                    let dt = (ex_t0.elapsed().as_millis() as u64).min(10_000);
+                                                                                    active_bg.fetch_add(dt, Ordering::Relaxed);
+                                                                                    acc += next_dur;
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
                                     }
                                 }
+                                break;
                             }
                         }
                     }
                 }
+            }
+            if !poll_ok {
+                reconn_bg.store(true, Ordering::Relaxed);
             }
             for _ in 0..8 {
                 if stop_bg.load(Ordering::Relaxed) {
@@ -252,18 +360,24 @@ pub async fn rec_start(src: String, url: String, file_path: String) -> Result<St
 }
 
 #[tauri::command]
-pub async fn rec_stop(src: String) -> Result<u64, String> {
-    let bytes = if let Ok(mut map) = jobs().lock() {
+pub async fn rec_stop(src: String, discard: Option<bool>) -> Result<u64, String> {
+    let (bytes, path_opt) = if let Ok(mut map) = jobs().lock() {
         if let Some(job) = map.remove(&src) {
             job.stop.store(true, Ordering::Relaxed);
-            job.bytes.load(Ordering::Relaxed)
+            (job.bytes.load(Ordering::Relaxed), Some(job.file_path))
         } else {
-            0
+            (0, None)
         }
     } else {
-        0
+        (0, None)
     };
     update_awake_state();
+    if discard.unwrap_or(false) {
+        if let Some(p) = path_opt {
+            tokio::time::sleep(Duration::from_millis(350)).await;
+            let _ = std::fs::remove_file(&p);
+        }
+    }
     Ok(bytes)
 }
 
@@ -276,10 +390,31 @@ pub fn rec_status() -> serde_json::Value {
                 src.clone(),
                 serde_json::json!({
                     "active": !job.stop.load(Ordering::Relaxed),
+                    "reconnecting": job.reconnecting.load(Ordering::Relaxed),
                     "elapsedSec": job.started.elapsed().as_secs(),
+                    "activeSec": job.active_ms.load(Ordering::Relaxed) as f64 / 1000.0,
                     "bytes": job.bytes.load(Ordering::Relaxed),
+                    "segsDone": job.segs_done.load(Ordering::Relaxed),
+                    "segsTotal": job.segs_total.load(Ordering::Relaxed),
                     "filePath": job.file_path,
                 }),
+            );
+        }
+    }
+    if let Ok(cmap) = conv_jobs().lock() {
+        for (src, cj) in cmap.iter() {
+            let done = cj.done_sec.load(Ordering::Relaxed);
+            let total = cj.total_sec;
+            let elapsed = cj.started.elapsed().as_secs();
+            let pct = if total > 0 { ((done * 100) / total).min(99) } else { 0 };
+            let eta = if done > 2 && total > done && elapsed > 0 {
+                Some(((elapsed as f64 / done as f64) * (total - done) as f64).round() as u64)
+            } else {
+                None
+            };
+            out.insert(
+                format!("conv_{}", src),
+                serde_json::json!({ "pct": pct, "etaSec": eta, "elapsedSec": elapsed }),
             );
         }
     }
@@ -394,7 +529,12 @@ pub async fn rec_encoders() -> serde_json::Value {
 }
 
 #[tauri::command]
-pub async fn rec_transcode(ts_path: String, encoder: String) -> Result<String, String> {
+pub async fn rec_transcode(
+    src: Option<String>,
+    ts_path: String,
+    encoder: String,
+    total_sec: Option<u64>,
+) -> Result<String, String> {
     if encoder.is_empty() || encoder == "ts" {
         return Ok(ts_path);
     }
@@ -406,7 +546,20 @@ pub async fn rec_transcode(ts_path: String, encoder: String) -> Result<String, S
     let enc = encoder.clone();
     let ts_c = ts_path.clone();
     let dst_c = dst_str.clone();
-    let res = tokio::task::spawn_blocking(move || {
+    let src_key = src.unwrap_or_else(|| "default".to_string());
+    let done_sec = Arc::new(AtomicU64::new(0));
+    if let Ok(mut cmap) = conv_jobs().lock() {
+        cmap.insert(
+            src_key.clone(),
+            ConvJob {
+                started: Instant::now(),
+                total_sec: total_sec.unwrap_or(0),
+                done_sec: done_sec.clone(),
+            },
+        );
+    }
+    let done_bg = done_sec.clone();
+    let ok = tokio::task::spawn_blocking(move || -> Result<bool, String> {
         let mut args: Vec<String> = vec![
             "-y".into(),
             "-i".into(),
@@ -438,21 +591,41 @@ pub async fn rec_transcode(ts_path: String, encoder: String) -> Result<String, S
             }
         }
         args.extend(
-            ["-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", &dst_c]
+            ["-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", &dst_c]
                 .into_iter()
                 .map(String::from),
         );
-        let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        run_ffmpeg_output(&ff, &arg_refs)
+        let mut cmd = std::process::Command::new(&ff);
+        cmd.args(&args).stdout(Stdio::piped()).stderr(Stdio::null());
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000);
+        }
+        let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+        if let Some(stdout) = child.stdout.take() {
+            for line in BufReader::new(stdout).lines().flatten() {
+                if let Some(us) = line.strip_prefix("out_time_us=") {
+                    if let Ok(v) = us.trim().parse::<u64>() {
+                        done_bg.store(v / 1_000_000, Ordering::Relaxed);
+                    }
+                }
+            }
+        }
+        let status = child.wait().map_err(|e| e.to_string())?;
+        Ok(status.success())
     })
     .await
     .map_err(|e| e.to_string())??;
 
-    if res.status.success() && std::fs::metadata(&dst_p).map(|m| m.len() > 0).unwrap_or(false) {
+    if let Ok(mut cmap) = conv_jobs().lock() {
+        cmap.remove(&src_key);
+    }
+
+    if ok && std::fs::metadata(&dst_p).map(|m| m.len() > 0).unwrap_or(false) {
         let _ = std::fs::remove_file(&src_p);
         Ok(dst_str)
     } else {
-        let err = String::from_utf8_lossy(&res.stderr);
-        Err(format!("ffmpeg selhal (ponechán .ts): {}", err.lines().last().unwrap_or("")))
+        Err("ffmpeg selhal (ponechán .ts)".to_string())
     }
 }

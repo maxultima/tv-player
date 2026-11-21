@@ -12,7 +12,7 @@ test('applySelection je defaultne ticha', () => {
 });
 
 test('playStation je defaultne ticha', () => {
-  assert.match(src, /async function playStation\(st, quiet = true\)/);
+  assert.match(src, /async function playStation\(st, quiet = true[,)]/);
 });
 
 test('renderIdle v prehravaci jen v hlasite vetvi', () => {

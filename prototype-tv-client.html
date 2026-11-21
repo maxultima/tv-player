@@ -57,12 +57,12 @@
   #autostartRow:hover { color:var(--text); }
   #autostartChk { accent-color:var(--acc); width:14px; height:14px; cursor:pointer; }
   /* ---------- recording settings (grouped card inside collapsible sources section) ---------- */
-  #recCfg .rcRow { display:flex; align-items:center; gap:6px; }
-  #recCfg .rcRow.top { align-items:flex-start; }
-  #recCfg .rcRow.top label { padding-top:5px; }
-  #recCfg .rcCol { flex:1; min-width:0; display:flex; flex-direction:column; gap:5px; }
-  #recCfg label { flex:none; white-space:nowrap; }
-  #recCfg input, #recCfg select { flex:1; min-width:0; background:#0b0e14; color:var(--text); border:1px solid var(--line);
+  .cfgGroup .rcRow { display:flex; align-items:center; gap:6px; }
+  .cfgGroup .rcRow.top { align-items:flex-start; }
+  .cfgGroup .rcRow.top label { padding-top:5px; }
+  .cfgGroup .rcCol { flex:1; min-width:0; display:flex; flex-direction:column; gap:5px; }
+  .cfgGroup .rcRow label { flex:none; white-space:nowrap; }
+  .cfgGroup input:not([type=checkbox]), .cfgGroup select { flex:1; min-width:0; background:#0b0e14; color:var(--text); border:1px solid var(--line);
     border-radius:8px; padding:4px 8px; font-size:11px; font-family:inherit; }
   #recCfg input[type=number] { flex:none; width:58px; text-align:right; font-variant-numeric:tabular-nums; }
   #recCfg .rcBtn { flex:none; width:26px; height:24px; border:1px solid var(--line); background:var(--panel2);
@@ -372,38 +372,88 @@
   .live { font-size:10px; background:var(--acc); border-radius:5px; padding:1px 6px; margin-left:6px; color:#fff; }
   /* ---------- bottom bar (now-playing EPG info + clock tab) ---------- */
   #panelB { position:fixed; left:50%; bottom:0; z-index:48;
-    width:min(700px, calc(100vw - 32px));
+    width:min(760px, calc(100vw - 32px));
     background:rgba(20,25,38,.96); backdrop-filter:blur(10px);
     border:1px solid var(--line); border-bottom:none; border-radius:14px 14px 0 0;
     padding:14px 18px;
     transform:translate(-50%, 125%); transition:transform .25s ease;
-    display:flex; align-items:center; gap:16px;
+    display:flex; align-items:flex-start; gap:16px;
     box-shadow:0 -12px 40px rgba(0,0,0,.6); }
   body.bottomOpen #panelB { transform:translate(-50%, 0); }
+  /* ---------- top bar (video filters popup) ---------- */
+  #panelT { position:fixed; left:50%; top:0; z-index:48;
+    width:min(680px, calc(100vw - 32px));
+    background:rgba(20,25,38,.96); backdrop-filter:blur(10px);
+    border:1px solid var(--line); border-top:none; border-radius:0 0 14px 14px;
+    padding:12px 18px 14px;
+    transform:translate(-50%, -125%); transition:transform .25s ease;
+    display:flex; flex-direction:column; gap:10px;
+    box-shadow:0 12px 40px rgba(0,0,0,.6); }
+  body.topOpen #panelT { transform:translate(-50%, 0); }
+  .ptHead { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .ptTitle { font-size:13px; font-weight:700; margin-right:auto; display:flex; align-items:center; gap:6px; }
+  .ptPresets { display:flex; gap:5px; flex-wrap:wrap; }
+  .ptPill { background:var(--panel2); border:1px solid var(--line); color:var(--dim);
+    border-radius:8px; padding:3px 9px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; }
+  .ptPill:hover { color:var(--text); border-color:var(--acc); }
+  .ptPill.on { background:var(--acc); border-color:var(--acc); color:#fff; }
+  .ptGrid { display:grid; grid-template-columns:1fr 1fr; gap:8px 20px; }
+  .ptSlider { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--dim); }
+  .ptSlider label { width:72px; flex:none; }
+  .ptSlider input[type=range] { flex:1; accent-color:var(--acc); cursor:pointer; }
+  .ptSlider .ptVal { width:40px; text-align:right; font-variant-numeric:tabular-nums; color:var(--text); font-size:11px; flex:none; }
+  .ptRow { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding-top:8px; border-top:1px solid #2a335066; font-size:11px; color:var(--dim); }
+  .ptGrp { display:flex; align-items:center; gap:6px; }
+  .ptBadge { background:#1e293b; border:1px solid #334155; color:#94a3b8; border-radius:6px; padding:2px 8px; font-size:10px; margin-left:auto; }
+  .ptBadge b { color:#86efac; }
   #nbClockTab { position:absolute; right:16px; bottom:100%; margin-bottom:-1px;
     background:rgba(20,25,38,.96); border:1px solid var(--line); border-bottom:none;
     border-radius:10px 10px 0 0; padding:4px 12px;
     font-size:14px; font-weight:700; letter-spacing:.5px; line-height:1.2;
     font-variant-numeric:tabular-nums; color:var(--text); }
+  #nbStreamTab { position:absolute; left:16px; bottom:100%; margin-bottom:-1px; display:none;
+    background:rgba(20,25,38,.96); border:1px solid #e11d4888; border-bottom:none;
+    border-radius:10px 10px 0 0; padding:4px 12px;
+    font-size:14px; font-weight:700; letter-spacing:.5px; line-height:1.2;
+    font-variant-numeric:tabular-nums; color:#fecdd3; }
+  body.inTimeshift #nbStreamTab { display:block; }
   #nbMedia { flex:none; display:flex; align-items:center; justify-content:center; }
   #nbImg { width:176px; height:98px; object-fit:cover; border-radius:10px;
     border:1px solid var(--line); background:#0b0e14; display:none; }
   #nbBadge { width:98px; height:98px; border-radius:14px; display:flex; align-items:center;
     justify-content:center; font-size:28px; font-weight:800; color:#fff;
     box-shadow:0 6px 20px rgba(0,0,0,.45); }
-  #nbMain { flex:1; min-width:0; display:flex; flex-direction:column; gap:4px; }
-  #nbTop { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:12px; color:var(--dim); }
-  #nbRecBtn { margin-left:auto; border:1px solid #e11d4888; background:rgba(225,29,72,.14); color:#fecdd3;
-    border-radius:8px; padding:3px 10px; font-size:11px; font-weight:700; cursor:pointer; font-family:inherit; }
-  #nbRecBtn:hover { background:var(--acc); border-color:var(--acc); color:#fff; }
-  #nbRecBtn.on { background:var(--acc); border-color:var(--acc); color:#fff; }
-  #nbStation { font-weight:700; color:var(--text); }
-  #nbTime { font-variant-numeric:tabular-nums; }
-  #nbTitle { font-size:19px; font-weight:700; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  #nbBar { width:100%; height:5px; background:#00000088; border-radius:99px; overflow:hidden; margin:3px 0; }
+  #nbMain { flex:1; min-width:0; display:flex; flex-direction:column; gap:5px; }
+  #nbTop { display:flex; align-items:center; gap:8px; flex-wrap:nowrap; font-size:12px; color:var(--dim);
+    white-space:nowrap; overflow:hidden; }
+  #nbTitleRow { display:flex; align-items:center; gap:10px; min-width:0; }
+  #nbBtns { margin-left:auto; display:flex; align-items:center; gap:5px; flex:none; }
+  .nbBtn { width:48px; height:26px; border:1px solid var(--line); background:#0b0e14cc; color:#e2e8f0;
+    border-radius:8px; padding:0; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit;
+    display:inline-flex; align-items:center; justify-content:center; gap:5px; }
+  .nbBtn:hover:not(:disabled) { border-color:var(--acc); color:#fff; }
+  .nbBtn.liveBtn { border-color:#22c55e88; background:rgba(34,197,94,.16); color:#86efac; }
+  .nbBtn.liveBtn:hover:not(:disabled) { background:#16a34a; border-color:#16a34a; color:#fff; }
+  .nbBtn.rec { border-color:#e11d4888; background:rgba(225,29,72,.14); color:#fecdd3; }
+  .nbBtn.rec:hover:not(:disabled), .nbBtn.rec.on { background:var(--acc); border-color:var(--acc); color:#fff; }
+  .nbBtn:disabled { opacity:.28; cursor:default; }
+  #nbBar.seekable { height:8px; cursor:pointer; }
+  #nbBar.seekable:hover { box-shadow:0 0 0 1px #fb718588; }
+  #nbSeekPop { position:fixed; z-index:95; display:none; pointer-events:none;
+    background:var(--panel); border:1px solid var(--line); border-radius:8px;
+    padding:3px 9px; font-size:12px; font-weight:700; font-variant-numeric:tabular-nums;
+    color:var(--text); white-space:nowrap; box-shadow:0 8px 24px rgba(0,0,0,.65);
+    transform:translate(-50%, -100%); }
+  #nbSeekPop.on { display:block; }
+  #nbStation { font-weight:700; color:var(--text); flex:none; }
+  #nbSrc { flex:none; }
+  #nbTime { font-variant-numeric:tabular-nums; flex:none; }
+  #nbTitle { flex:1; min-width:0; font-size:19px; font-weight:700; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #nbBar { position:relative; width:100%; height:8px; background:#00000088; border-radius:99px; overflow:hidden; margin:3px 0; touch-action:none; }
+  #nbLiveMark { position:absolute; top:0; bottom:0; width:2px; background:#fff; box-shadow:0 0 6px #fff; display:none; z-index:2; pointer-events:none; }
+  body.inTimeshift #nbLiveMark { display:block; }
   #nbBarFill { height:100%; width:0%; background:linear-gradient(90deg,var(--acc),#fb7185); border-radius:99px; transition:width .4s; }
-  #nbDesc { font-size:13px; line-height:1.45; color:#cbd5e1;
-    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  #nbDesc { font-size:13px; line-height:1.45; color:#cbd5e1; }
 </style>
 </head>
 <body>
@@ -499,6 +549,13 @@
     <div id="sources"></div>
     <div id="genCfg" class="cfgGroup">
       <div class="cfgHead">⚙ Základní nastavení</div>
+      <div class="rcRow" id="langRow">
+        <label for="langSel">Jazyk:</label>
+        <select id="langSel">
+          <option value="en" selected>English</option>
+          <option value="cs">Čeština</option>
+        </select>
+      </div>
       <label id="autostartRow" title="Automaticky spustit aplikaci po přihlášení do Windows"><input type="checkbox" id="autostartChk"><span>Spustit při startu</span></label>
     </div>
     <div id="recCfg" class="cfgGroup">
@@ -607,8 +664,42 @@
     <div id="epg"></div>
   </aside>
 
+  <!-- TOP: video filters popup -->
+  <aside id="panelT">
+    <div class="ptHead">
+      <div class="ptTitle">✨ Obrazové filtry</div>
+      <div class="ptPresets" id="ptPresets">
+        <button class="ptPill on" data-preset="default">Výchozí</button>
+        <button class="ptPill" data-preset="cinema">Kino</button>
+        <button class="ptPill" data-preset="vivid">Sport / Živé</button>
+        <button class="ptPill" data-preset="night">Noční</button>
+      </div>
+      <button class="ptPill" id="ptReset" title="Vrátit výchozí hodnoty">↺ Reset</button>
+    </div>
+    <div class="ptGrid">
+      <div class="ptSlider"><label for="fltBright">Jas</label><input type="range" id="fltBright" min="50" max="150" value="100"><span class="ptVal" id="fltBrightV">100 %</span></div>
+      <div class="ptSlider"><label for="fltCont">Kontrast</label><input type="range" id="fltCont" min="50" max="150" value="100"><span class="ptVal" id="fltContV">100 %</span></div>
+      <div class="ptSlider"><label for="fltSat">Sytost</label><input type="range" id="fltSat" min="0" max="200" value="100"><span class="ptVal" id="fltSatV">100 %</span></div>
+      <div class="ptSlider"><label for="fltWarm">Teplota</label><input type="range" id="fltWarm" min="0" max="40" value="0"><span class="ptVal" id="fltWarmV">0 %</span></div>
+    </div>
+    <div class="ptRow">
+      <div class="ptGrp">
+        <span>Doostření (CAS):</span>
+        <button class="ptPill on" data-cas="0">Vypnuto</button>
+        <button class="ptPill" data-cas="1">Jemné</button>
+        <button class="ptPill" data-cas="2">Silné</button>
+      </div>
+      <div class="ptGrp">
+        <span>Upscaling (GPU shader):</span>
+        <button class="ptPill on" data-up="0">Vypnuto</button>
+        <button class="ptPill" data-up="1">Zapnuto</button>
+      </div>
+    </div>
+  </aside>
+
   <!-- BOTTOM: now-playing EPG bar + clock tab -->
   <aside id="panelB">
+    <div id="nbStreamTab">--:--:--</div>
     <div id="nbClockTab">--:--:--</div>
     <div id="nbMedia">
       <img id="nbImg" alt="">
@@ -620,13 +711,22 @@
         <span id="nbSrc"></span>
         <span class="live" id="nbLive" style="margin-left:0">ŽIVĚ</span>
         <span id="nbTime"></span>
-        <button id="nbRecBtn" title="Nahrávat běžící pořad">⏺ Nahrávat</button>
       </div>
-      <div id="nbTitle">–</div>
-      <div id="nbBar"><div id="nbBarFill"></div></div>
+      <div id="nbTitleRow">
+        <div id="nbTitle">–</div>
+        <span id="nbBtns">
+          <button class="nbBtn" id="nbFromStartBtn" title="Přehrát pořad od začátku">⏮</button>
+          <button class="nbBtn liveBtn" id="nbLiveBtn" title="Přehrávat živě">▶</button>
+          <button class="nbBtn rec" id="nbRecStartBtn" title="Nahrát pořad od začátku"><span>⏮</span><span>⏺</span></button>
+          <button class="nbBtn rec" id="nbRecBtn" title="Nahrávat běžící pořad">⏺</button>
+          <button class="nbBtn rec" id="nbStopRecBtn" title="Zastavit nahrávání">⏹</button>
+        </span>
+      </div>
+      <div id="nbBar"><div id="nbBarFill"></div><div id="nbLiveMark"></div></div>
       <div id="nbDesc"></div>
     </div>
   </aside>
+  <div id="nbSeekPop">--:--:--</div>
 
   <!-- COLLISION MODAL -->
   <div class="protoModal" id="recCollisionModal">
@@ -650,6 +750,7 @@
       <div class="mBox" id="recStopInfo"></div>
       <div class="mRow">
         <button class="btn" id="btnRecStopCancel">Pokračovat</button>
+        <button class="btn" id="btnRecStopDiscard">Zahodit</button>
         <button class="btn primary" id="btnRecStopConfirm">Zastavit a uložit</button>
       </div>
     </div>
@@ -1002,8 +1103,31 @@ function renderStage(){
   renderEpg(st);
   renderBottomBar(st);
 }
+let protoTimeshift = false;
+function hideProtoSeekPop(){ document.getElementById('nbSeekPop').classList.remove('on'); }
+function updateProtoSeekPop(bar, ev, startStr, endStr, liveFrac){
+  const pop = document.getElementById('nbSeekPop');
+  const rect = bar.getBoundingClientRect();
+  const frac = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+  if (liveFrac !== undefined && frac > liveFrac) {
+    hideProtoSeekPop();
+    bar.style.cursor = 'default';
+    return null;
+  }
+  bar.style.cursor = 'pointer';
+  const sM = hmToMin(startStr) || (19*60), eM = hmToMin(endStr) || (sM + 60);
+  const totSec = Math.round((sM * 60) + frac * ((eM - sM) * 60));
+  const p = n => String(n).padStart(2, '0');
+  const tStr = p(Math.floor(totSec/3600)%24) + ':' + p(Math.floor((totSec%3600)/60)) + ':' + p(totSec%60);
+  pop.textContent = tStr;
+  pop.style.left = Math.max(44, Math.min(window.innerWidth - 44, ev.clientX)) + 'px';
+  pop.style.top = (rect.top - 8) + 'px';
+  pop.classList.add('on');
+  return { frac, tStr };
+}
 function renderBottomBar(st){
-  if(!st){ document.body.classList.remove('bottomOpen'); return; }
+  if(!st){ document.body.classList.remove('bottomOpen','inTimeshift'); hideProtoSeekPop(); return; }
+  document.body.classList.toggle('inTimeshift', protoTimeshift);
   const epg = st.epg || [];
   let idx = epg.findIndex(e => e[1] === st.now);
   if(idx < 0) idx = epg.findIndex(e => e[2]);
@@ -1021,23 +1145,78 @@ function renderBottomBar(st){
   }
   $('#nbStation').textContent = st.name;
   $('#nbSrc').textContent = '· ' + srcOf().name;
-  const start = ep ? ep[0] : '';
-  const end = next ? next[0] : '';
-  $('#nbTime').textContent = start ? (start + (end ? ' – ' + end : '')) : '';
+  $('#nbLive').textContent = protoTimeshift ? 'ZPĚTNĚ' : 'ŽIVĚ';
+  const start = ep ? ep[0] : '19:00';
+  const end = next ? next[0] : '20:00';
+  $('#nbTime').textContent = start + ' – ' + end;
   $('#nbTitle').textContent = title;
+  const sM = hmToMin(start) || (19*60), eM = hmToMin(end) || (sM + 60);
+  const curSec = Math.round((sM * 60) + ((st.pct || 0) / 100) * ((eM - sM) * 60));
+  const p2 = n => String(n).padStart(2, '0');
+  const stTab = document.getElementById('nbStreamTab');
+  if(stTab) stTab.textContent = p2(Math.floor(curSec/3600)%24) + ':' + p2(Math.floor((curSec%3600)/60)) + ':' + p2(curSec%60);
+  const isRec = !!activeRec[curSrc];
+  const bar = $('#nbBar');
+  bar.classList.toggle('seekable', !isRec);
+  bar.title = '';
   $('#nbBarFill').style.width = (st.pct || 0) + '%';
+  const liveFrac = ((ep && ep[3]) || 50) / 100;
+  const lm = document.getElementById('nbLiveMark');
+  if (lm) lm.style.left = Math.round(liveFrac * 100) + '%';
+  bar.onpointerenter = !isRec ? (ev) => updateProtoSeekPop(bar, ev, start, end, liveFrac) : null;
+  bar.onpointermove = !isRec ? (ev) => updateProtoSeekPop(bar, ev, start, end, liveFrac) : null;
+  bar.onpointerleave = hideProtoSeekPop;
+  bar.onpointerdown = bar.onpointerup = bar.onpointercancel = null;
+  bar.onclick = !isRec ? (ev) => {
+    ev.stopPropagation();
+    const info = updateProtoSeekPop(bar, ev, start, end, liveFrac);
+    if (!info) return;
+    st.pct = Math.round(info.frac * 100);
+    protoTimeshift = true;
+    renderBottomBar(st);
+    log('⏩ přetočeno na ' + st.pct + ' % (demo): ' + title);
+  } : null;
   $('#nbDesc').textContent = DEMO_DESC[title] || ('Pořad „' + title + '“' + (start ? ' (' + start + ')' : '') + '. Podrobnosti (herci, rok, žánr) poskytne EPG zdroje.');
+  const fromStartBtn = document.getElementById('nbFromStartBtn');
+  const liveBtn = document.getElementById('nbLiveBtn');
+  const recStartBtn = document.getElementById('nbRecStartBtn');
   const recBtn = document.getElementById('nbRecBtn');
-  if (recBtn) {
-    const isRec = !!activeRec[curSrc];
-    recBtn.classList.toggle('on', isRec);
-    recBtn.textContent = isRec ? '⏹ Zastavit' : '⏺ Nahrávat';
-    recBtn.title = isRec ? 'Zastavit probíhající nahrávání' : 'Nahrávat běžící pořad';
-    recBtn.onclick = (ev) => {
+  const stopRecBtn = document.getElementById('nbStopRecBtn');
+  if (fromStartBtn) {
+    fromStartBtn.disabled = isRec;
+    fromStartBtn.onclick = (ev) => { ev.stopPropagation(); if (fromStartBtn.disabled) return; st.pct = 0; protoTimeshift = true; renderBottomBar(st); log('⏮ přehrávám od začátku (demo): ' + title); };
+  }
+  if (liveBtn) {
+    liveBtn.disabled = !protoTimeshift || isRec;
+    liveBtn.onclick = (ev) => { ev.stopPropagation(); if (liveBtn.disabled) return; protoTimeshift = false; st.pct = (ep && ep[3]) || 50; renderBottomBar(st); log('▶ přepnuto zpět na živé vysílání (demo)'); };
+  }
+  if (recStartBtn) {
+    recStartBtn.disabled = isRec;
+    recStartBtn.onclick = (ev) => {
       ev.stopPropagation();
-      if (activeRec[curSrc]) { openStopRecModal(curSrc); return; }
+      if (recStartBtn.disabled) return;
       const prog = ep ? [ep[0], ep[1], 1, ep[3] || st.pct] : ['19:00', title, 1, st.pct];
       toggleRecordFor(st, prog);
+      log('⏮⏺ nahrávání od začátku (demo): ' + title);
+    };
+  }
+  if (recBtn) {
+    recBtn.disabled = isRec;
+    recBtn.classList.toggle('on', isRec);
+    recBtn.onclick = (ev) => {
+      ev.stopPropagation();
+      if (recBtn.disabled) return;
+      const prog = ep ? [ep[0], ep[1], 1, ep[3] || st.pct] : ['19:00', title, 1, st.pct];
+      toggleRecordFor(st, prog);
+    };
+  }
+  if (stopRecBtn) {
+    stopRecBtn.disabled = !isRec;
+    stopRecBtn.classList.toggle('on', isRec);
+    stopRecBtn.onclick = (ev) => {
+      ev.stopPropagation();
+      if (stopRecBtn.disabled) return;
+      openStopRecModal(curSrc);
     };
   }
 }
@@ -1067,11 +1246,21 @@ function renderEpg(st){
     const recOn = !!(reminders[progKey(st,p)] && reminders[progKey(st,p)].record) || !!(activeRec[curSrc] && activeRec[curSrc].station === st.name && activeRec[curSrc].title === p[1]);
     const upcoming = !p[2] && (liveIdx >= 0 ? origIdx > liveIdx : true);
     const canRec = !!p[2] || upcoming;
+    const recAfterOn = !!(reminders[progKey(st,p)] && reminders[progKey(st,p)].recordAfter);
+    const dlSvg = '<svg viewBox="0 0 16 16" width="13" height="13" style="vertical-align:-2px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M8 2v8m-3-3 3 3 3-3M3 13h10"/></svg>';
     d.innerHTML='<span class="t">'+p[0]+'</span><span class="ti">'+p[1]+(p[2]?'<span class="live">LIVE</span>':'')+'</span>'
-      +(canRec?'<span class="recBtn'+(recOn?' on':'')+'" title="'+(p[2]?'Nahrávat hned':'Naplánovat nahrávání')+'">⏺</span>':'')
+      +(canRec?'<span class="recBtn'+(recAfterOn?' on':'')+' recAfter" title="Stáhnout z archivu po skončení pořadu (PC může mezitím spát)">'+dlSvg+'</span>':'')
+      +(canRec?'<span class="recBtn'+(recOn?' on':'')+' recLive" title="'+(p[2]?'Nahrávat hned':'Naplánovat nahrávání')+'">⏺</span>':'')
       +(upcoming?'<span class="rem'+(marked?' on':'')+'" title="Připomenout a v daný čas přepnout">⏰</span>':'')
       +(p[2]?'<div class="epProg"><div style="width:'+(p[3]||10)+'%'+'"></div></div>':'');
-    if(canRec) d.querySelector('.recBtn').onclick=ev=>{ev.stopPropagation(); toggleRecordFor(st,p);};
+    if(canRec) d.querySelector('.recAfter').onclick=ev=>{
+      ev.stopPropagation();
+      const k=progKey(st,p);
+      if(reminders[k]&&reminders[k].recordAfter){ delete reminders[k].recordAfter; if(!reminders[k].record&&!reminders[k].pinned) delete reminders[k]; log('📥 stažení po skončení zrušeno: '+p[1]); }
+      else { const prev=reminders[k]||{}; reminders[k]={...prev, t:p[0], title:p[1], src:curSrc, station:st.name, recordAfter:true}; log('📥 naplánováno stažení z archivu po skončení: '+st.name+' – '+p[1]); }
+      saveReminders(); renderAll();
+    };
+    if(canRec) d.querySelector('.recLive').onclick=ev=>{ev.stopPropagation(); toggleRecordFor(st,p);};
     if(upcoming) d.querySelector('.rem').onclick=ev=>{ev.stopPropagation(); toggleReminder(st,p);};
     d.onclick=ev=>{ev.stopPropagation(); st.now=p[1]; st.pct=p[3]||10; renderStage(); renderStations(); log('EPG: „'+p[1]+'“ → právě běží na '+st.name);};
     d.onmouseenter=()=>scheduleProgDetail(d,st,rows,idx);
@@ -1443,7 +1632,7 @@ function showProgDetail(row,st,rows,idx){
 }
 document.getElementById('epg').addEventListener('scroll',hideProgDetail,{passive:true});
 /* panely se vysouvaji priblizenim mysi k okraji; levy a dolni jen kdyz je program */
-let hideT=null, bottomHideT=null;
+let hideT=null, bottomHideT=null, topHideT=null;
 function scheduleClose(){
   hideProgDetail();
   clearTimeout(hideT);
@@ -1459,9 +1648,24 @@ function scheduleBottomClose(){
 function cancelBottomClose(){
   if(bottomHideT){ clearTimeout(bottomHideT); bottomHideT=null; }
 }
+function scheduleTopClose(){
+  if(topHideT) return;
+  topHideT=setTimeout(()=>{ topHideT=null; document.body.classList.remove('topOpen'); },350);
+}
+function cancelTopClose(){
+  if(topHideT){ clearTimeout(topHideT); topHideT=null; }
+}
 document.addEventListener('mousemove',e=>{
   if(e.clientX>=window.innerWidth-24){ clearTimeout(hideT); document.body.classList.add('rightOpen'); }
   else if(e.clientX<=24&&ch().length&&!activeRec[curSrc]){ clearTimeout(hideT); document.body.classList.add('leftOpen'); }
+  if(e.clientY<=24 && e.clientX>60 && e.clientX<window.innerWidth-60){
+    cancelTopClose(); document.body.classList.add('topOpen');
+  } else if(document.body.classList.contains('topOpen')){
+    const pt=document.getElementById('panelT');
+    const h=pt?pt.offsetHeight:150;
+    if(e.clientY<=h+8) cancelTopClose();
+    else scheduleTopClose();
+  }
   if(ch().length){
     if(e.clientY>=window.innerHeight-24){
       cancelBottomClose(); updateBottomClock(); document.body.classList.add('bottomOpen');
@@ -1473,7 +1677,63 @@ document.addEventListener('mousemove',e=>{
     }
   }
 });
-document.addEventListener('mouseleave',()=>{ cancelBottomClose(); document.body.classList.remove('bottomOpen'); });
+document.addEventListener('mouseleave',()=>{ cancelBottomClose(); cancelTopClose(); document.body.classList.remove('bottomOpen','topOpen'); });
+/* Obrazove filtry (horni popup menu) */
+(function initVideoFilters(){
+  const stg=document.getElementById('stage');
+  const flt={ bright:100, cont:100, sat:100, warm:0, cas:0, up:0 };
+  const PRESETS={
+    default:{ bright:100, cont:100, sat:100, warm:0 },
+    cinema:{ bright:95, cont:115, sat:92, warm:8 },
+    vivid:{ bright:105, cont:118, sat:128, warm:0 },
+    night:{ bright:82, cont:96, sat:88, warm:24 },
+  };
+  function applyFlt(){
+    const casBoost = flt.cas===2 ? 1.08 : (flt.cas===1 ? 1.04 : 1);
+    const css = 'brightness('+(flt.bright/100)+') contrast('+((flt.cont/100)*casBoost).toFixed(2)+') saturate('+(flt.sat/100)+')'+(flt.warm>0?(' sepia('+(flt.warm/100)+')'):'');
+    if(stg) stg.style.filter = (flt.bright===100&&flt.cont===100&&flt.sat===100&&flt.warm===0&&flt.cas===0) ? '' : css;
+    document.getElementById('fltBright').value=flt.bright; document.getElementById('fltBrightV').textContent=flt.bright+' %';
+    document.getElementById('fltCont').value=flt.cont; document.getElementById('fltContV').textContent=flt.cont+' %';
+    document.getElementById('fltSat').value=flt.sat; document.getElementById('fltSatV').textContent=flt.sat+' %';
+    document.getElementById('fltWarm').value=flt.warm; document.getElementById('fltWarmV').textContent=flt.warm+' %';
+  }
+  [['fltBright','bright'],['fltCont','cont'],['fltSat','sat'],['fltWarm','warm']].forEach(([id,k])=>{
+    document.getElementById(id).oninput=e=>{
+      flt[k]=+e.target.value;
+      document.querySelectorAll('#ptPresets .ptPill').forEach(b=>b.classList.remove('on'));
+      applyFlt();
+    };
+  });
+  document.querySelectorAll('#ptPresets .ptPill').forEach(btn=>{
+    btn.onclick=()=>{
+      const p=PRESETS[btn.dataset.preset]; if(!p) return;
+      Object.assign(flt,p);
+      document.querySelectorAll('#ptPresets .ptPill').forEach(b=>b.classList.toggle('on',b===btn));
+      applyFlt(); log('✨ filtr preset: '+btn.textContent);
+    };
+  });
+  document.getElementById('ptReset').onclick=()=>{
+    Object.assign(flt,{ bright:100, cont:100, sat:100, warm:0, cas:0, up:0 });
+    document.querySelectorAll('#ptPresets .ptPill').forEach(b=>b.classList.toggle('on',b.dataset.preset==='default'));
+    document.querySelectorAll('[data-cas]').forEach(b=>b.classList.toggle('on',b.dataset.cas==='0'));
+    document.querySelectorAll('[data-up]').forEach(b=>b.classList.toggle('on',b.dataset.up==='0'));
+    applyFlt(); log('✨ obrazové filtry resetovány');
+  };
+  document.querySelectorAll('[data-cas]').forEach(btn=>{
+    btn.onclick=()=>{
+      flt.cas=+btn.dataset.cas;
+      document.querySelectorAll('[data-cas]').forEach(b=>b.classList.toggle('on',b===btn));
+      applyFlt(); log('✨ doostření (CAS): '+btn.textContent);
+    };
+  });
+  document.querySelectorAll('[data-up]').forEach(btn=>{
+    btn.onclick=()=>{
+      flt.up=+btn.dataset.up;
+      document.querySelectorAll('[data-up]').forEach(b=>b.classList.toggle('on',b===btn));
+      log('✨ GPU upscaling shader: '+btn.textContent);
+    };
+  });
+})();
 document.getElementById('panelR').addEventListener('mouseleave',scheduleClose);
 document.getElementById('panelL').addEventListener('mouseleave',scheduleClose);
 document.getElementById('panelR').addEventListener('mouseenter',()=>clearTimeout(hideT));
@@ -1617,6 +1877,13 @@ function renderReminders(){
     const fn = pendingCollisionAction; closeCollisionModal(); if(fn) fn();
   };
   document.getElementById('btnRecStopCancel').onclick = closeStopRecModal;
+  document.getElementById('btnRecStopDiscard').onclick = ()=>{
+    if(stopModalSrc && activeRec[stopModalSrc]){
+      log('🗑 nahrávání zahozeno (demo): ' + activeRec[stopModalSrc].title);
+      activeRec[stopModalSrc] = null;
+    }
+    closeStopRecModal(); renderAll();
+  };
   document.getElementById('btnRecStopConfirm').onclick = ()=>{
     if(stopModalSrc && activeRec[stopModalSrc]){
       const r = activeRec[stopModalSrc];

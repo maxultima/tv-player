@@ -99,6 +99,7 @@ export function parseSltvPlaylist(j) {
       pct: 50,
       epg: [{ t: '--:--', title: 'Živě' }],
       streamUrl: v.url,
+      timeshift: Number(v.timeshift) || 0,
       drm: null,
     });
     i++;
