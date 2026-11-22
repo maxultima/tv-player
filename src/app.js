@@ -973,26 +973,29 @@ async function wakeRecovery(reason) {
       document.body.classList.remove('offline');
     }
     log('probuzení (' + reason + ') — obnovuji…');
+    const finishSrc = async (src) => {
+      persistCache(); renderAll();
+      if (curSrc !== src) return;
+      const st = currentStation();
+      diag('wakeRecovery(' + src + '): hotovo, st=' + (st ? st.name : '-') + ' paused=' + paused);
+      if (st && !paused && (st.streamUrl || st.opId)) {
+        await reloadQuiet();
+        diag('wakeRecovery(' + src + '): reloadQuiet hotov');
+      }
+    };
     const jobs = [];
     if (authMeta.sltv && !authMeta.sltv.manual) jobs.push((async () => {
       try {
         const l = await withConnecting('sltv', sltvLoadChannels);
         if (l.length) { liveChannels.sltv = l; log('SledováníTV: kanály dohrány po probuzení'); }
       } catch (e) { log('obnova po probuzení (sltv): ' + (e?.message || e)); }
+      await finishSrc('sltv');
     })());
     if (authMeta.oneplay && authMeta.oneplay.logged) jobs.push((async () => {
       try { await withConnecting('oneplay', () => oneplayEnsureEpg(true)); } catch (e) { log('obnova po probuzení (oneplay): ' + (e?.message || e)); }
+      await finishSrc('oneplay');
     })());
     await Promise.all(jobs);
-    persistCache(); renderAll();
-    // Mrtvy stream po spanku: tichy reload (drzi 'on' — hlasity applySelection
-    // by pri nedostupne siti zavolal renderIdle a zahodil stav).
-    const st = currentStation();
-    diag('wakeRecovery: jobs hotovy, st=' + (st ? st.name : '-') + ' paused=' + paused);
-    if (st && !paused && (st.streamUrl || st.opId)) {
-      await reloadQuiet();
-      diag('wakeRecovery: reloadQuiet hotov');
-    }
   } finally {
     recovering = false;
     if (pendingWake) {
@@ -1195,7 +1198,11 @@ function fmtHms(ms) {
 }
 function syncTimeshiftUi() {
   document.body.classList.toggle('inTimeshift', inTimeshift);
-  if (!inTimeshift || !timeshiftProg || !timeshiftProg.s) return;
+  const lm = document.getElementById('nbLiveMark');
+  if (!inTimeshift || !timeshiftProg || !timeshiftProg.s) {
+    if (lm) lm.style.display = 'none';
+    return;
+  }
   const ct = pendingSeekSec !== null ? pendingSeekSec : (Number.isFinite(video.currentTime) ? video.currentTime : 0);
   const baseMs = timeshiftBeginMs || timeshiftProg.s;
   const curMs = baseMs + ct * 1000;
@@ -1203,7 +1210,6 @@ function syncTimeshiftUi() {
   const pct = Math.max(0, Math.min(100, ((curMs - timeshiftProg.s) / durMs) * 100));
   const fill = document.getElementById('nbBarFill');
   if (fill) fill.style.width = pct.toFixed(1) + '%';
-  const lm = document.getElementById('nbLiveMark');
   if (lm && timeshiftProg.e2 > timeshiftProg.s) {
     const nowMs = Date.now();
     if (nowMs >= timeshiftProg.s && nowMs <= timeshiftProg.e2) {
@@ -1229,7 +1235,7 @@ function syncTimeshiftUi() {
 function canTimeshiftProg(st, p) {
   if (!st || !p || !p.id) return false;
   if (st.opId) return !st.drm;
-  return !!(p.canTimeshift || (st.timeshift > 0));
+  return (Number(st.timeshift) > 0) && (p.canTimeshift !== false);
 }
 async function fetchTimeshiftUrl(st, p) {
   if (!st || !p || !p.id) return null;
@@ -1672,7 +1678,7 @@ function renderFavs() {
     const d = document.createElement('div');
     d.className = 'fav' + (st.logo ? ' wide' : '') + (sel ? ' sel' : '');
     d.dataset.key = favKey(st);
-    if (st.logo) { d.style.background = '#fff'; d.innerHTML = '<img src="' + st.logo + '" alt="' + st.name + '">'; }
+    if (st.logo) { d.style.background = 'transparent'; d.innerHTML = '<img src="' + (logoTrimCache[st.logo] || st.logo) + '" alt="' + st.name + '">'; trimLogo(st.logo, d.querySelector('img')); }
     else { d.textContent = st.ini; d.style.background = st.color; }
     d.title = st.name + ' (podrž a táhni pro přeskládání)';
     d.addEventListener('pointerdown', (e) => favDragStart(e, d, favKey(st)));
@@ -1683,6 +1689,11 @@ function renderFavs() {
       ev.stopPropagation();
       const i = channels().findIndex((s) => s.name === st.name);
       if (i >= 0) {
+        if (st.locked) {
+          toast(st.noAccess ? 'Stanice není ve vašem balíčku.' : 'Stanice je uzamčena (rodičovský zámek).', 6000);
+          log('zamčená stanice: ' + st.name);
+          return;
+        }
         if (i === selIdx && video.classList.contains('on')) {
           if (paused) { paused = false; resumeLive(); stage.classList.remove('paused'); persistSoon(); log('▶ přehrávání'); }
           return;
@@ -1693,8 +1704,65 @@ function renderFavs() {
     w.appendChild(d);
   });
 }
+const logoTrimCache = {};
+const logoTrimPending = {};
+function trimLogo(url, imgEl) {
+  if (!url || !imgEl || !invoke) return;
+  if (logoTrimCache[url]) {
+    if (logoTrimCache[url] !== url) imgEl.src = logoTrimCache[url];
+    return;
+  }
+  if (logoTrimPending[url]) {
+    logoTrimPending[url].push(imgEl);
+    return;
+  }
+  logoTrimPending[url] = [imgEl];
+  invoke('http_get_data_url', { url }).then((dataUrl) => {
+    const probe = new Image();
+    probe.onload = () => {
+      try {
+        const w = probe.naturalWidth, h = probe.naturalHeight;
+        if (w < 8 || h < 8) { logoTrimCache[url] = url; return; }
+        const c = document.createElement('canvas'); c.width = w; c.height = h;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(probe, 0, 0);
+        const data = ctx.getImageData(0, 0, w, h).data;
+        let minX = w, minY = h, maxX = -1, maxY = -1;
+        for (let y = 0; y < h; y++) {
+          const row = y * w * 4;
+          for (let x = 0; x < w; x++) {
+            if (data[row + x * 4 + 3] > 15) {
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
+            }
+          }
+        }
+        const tw = maxX - minX + 1, th = maxY - minY + 1;
+        if (maxX < minX || tw < 6 || th < 6 || (tw >= w * 0.92 && th >= h * 0.92)) {
+          logoTrimCache[url] = url;
+          return;
+        }
+        const pad = 2;
+        const c2 = document.createElement('canvas');
+        c2.width = tw + pad * 2; c2.height = th + pad * 2;
+        c2.getContext('2d').drawImage(probe, minX, minY, tw, th, pad, pad, tw, th);
+        const out = c2.toDataURL('image/png');
+        logoTrimCache[url] = out;
+        (logoTrimPending[url] || []).forEach((el) => { if (el.isConnected) el.src = out; });
+      } catch {
+        logoTrimCache[url] = url;
+      } finally {
+        delete logoTrimPending[url];
+      }
+    };
+    probe.onerror = () => { logoTrimCache[url] = url; delete logoTrimPending[url]; };
+    probe.src = dataUrl;
+  }).catch(() => { logoTrimCache[url] = url; delete logoTrimPending[url]; });
+}
 function stIcon(st) {
-  if (st.logo) return '<div class="stIco wide"><img src="' + st.logo + '" alt="' + st.name + '"></div>';
+  if (st.logo) return '<div class="stIco wide"><img src="' + (logoTrimCache[st.logo] || st.logo) + '" alt="' + st.name + '"></div>';
   return '<div class="stIco" style="background:' + st.color + '">' + st.ini + '</div>';
 }
 let stationFilter = '';
@@ -1731,6 +1799,7 @@ function renderStations() {
       '<div class="stMid"><div class="stName">' + st.name + lock +
       ' <span class="star ' + (fav ? 'on' : '') + '" title="oblíbená">' + (fav ? '★' : '☆') + '</span></div>' +
       (li.now ? '<div class="stNow">' + li.now + '</div>' : '') + prog + '</div>';
+    if (st.logo) trimLogo(st.logo, r.querySelector('.stIco img'));
     r.querySelector('.star').onclick = (ev) => {
       ev.stopPropagation();
       favToggle(st);
@@ -1740,6 +1809,11 @@ function renderStations() {
     r.onmouseenter = () => scheduleEpgPop(r, st);
     r.onmouseleave = () => hideEpgPopSoon();
     r.onclick = () => {
+      if (st.locked) {
+        toast(st.noAccess ? 'Stanice není ve vašem balíčku.' : 'Stanice je uzamčena (rodičovský zámek).', 6000);
+        log('zamčená stanice: ' + st.name);
+        return;
+      }
       if (i === selIdx && video.classList.contains('on')) {
         if (paused) { paused = false; resumeLive(); stage.classList.remove('paused'); persistSoon(); log('▶ přehrávání'); }
         return; // jiz hraje, nic neprepinat
@@ -2552,7 +2626,7 @@ function showEpgPop(row, st) {
   });
   pop.classList.add('on');
   const panelW = document.getElementById('panelR').offsetWidth || 350;
-  pop.style.left = Math.max(8, window.innerWidth - panelW - 10 - 270) + 'px';
+  pop.style.left = Math.max(8, window.innerWidth - panelW - 10 - 360) + 'px';
   const r = row.getBoundingClientRect();
   const ph = pop.offsetHeight || 220;
   pop.style.top = Math.max(8, Math.min(r.top, window.innerHeight - ph - 8)) + 'px';

@@ -84,6 +84,40 @@ async fn http_get(url: String, user_agent: Option<String>) -> Result<String, Str
 }
 
 #[tauri::command]
+async fn http_get_data_url(url: String) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let res = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    if !res.status().is_success() {
+        return Err(format!("HTTP {}", res.status()));
+    }
+    let ct = res
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("image/png")
+        .split(';')
+        .next()
+        .unwrap_or("image/png")
+        .to_string();
+    let bytes = res.bytes().await.map_err(|e| e.to_string())?;
+    const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut b64 = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    for c in bytes.chunks(3) {
+        let n = ((c[0] as u32) << 16)
+            | ((*c.get(1).unwrap_or(&0) as u32) << 8)
+            | (*c.get(2).unwrap_or(&0) as u32);
+        b64.push(T[((n >> 18) & 63) as usize] as char);
+        b64.push(T[((n >> 12) & 63) as usize] as char);
+        b64.push(if c.len() > 1 { T[((n >> 6) & 63) as usize] as char } else { '=' });
+        b64.push(if c.len() > 2 { T[(n & 63) as usize] as char } else { '=' });
+    }
+    Ok(format!("data:{};base64,{}", ct, b64))
+}
+
+#[tauri::command]
 async fn net_check() -> bool {
     let Ok(client) = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(3))
@@ -161,6 +195,7 @@ fn main() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             http_get,
+            http_get_data_url,
             oneplay::oneplay_call,
             vault::vault_set,
             vault::vault_get,
