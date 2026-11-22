@@ -3,6 +3,7 @@
 
 import { normName, matchEpgRows, liveState, parseSltvPlaylist } from './lib/epg.js';
 import { t, getLang, setLang, applyI18n } from './lib/i18n.js';
+import { invoke as ipcInvoke, listen, hasTauri } from './ipc/commands.js';
 
 // Tauri v2: nativni je window.__TAURI_INTERNALS__.invoke; __TAURI__.invoke je zalozni.
 // Diagnostika mostu (bezi i bez nej, vysledek cteme z localStorage na disku).
@@ -18,10 +19,7 @@ try {
   di.ua = navigator.userAgent;
 
 } catch {}
-const TAURI_INTERNALS = window.__TAURI_INTERNALS__ || null;
-const TAURI = window.__TAURI__ || null;
-const _invokeFn = (TAURI_INTERNALS && TAURI_INTERNALS.invoke) || (TAURI && TAURI.invoke) || null;
-const invoke = _invokeFn ? _invokeFn.bind(TAURI_INTERNALS || TAURI) : null;
+const invoke = hasTauri ? ipcInvoke : null;
 
 const $ = (s) => document.querySelector(s);
 const stage = $('#stage'), video = $('#video'), noiseCanvas = $('#noise');
@@ -1210,6 +1208,8 @@ function syncTimeshiftUi() {
   const pct = Math.max(0, Math.min(100, ((curMs - timeshiftProg.s) / durMs) * 100));
   const fill = document.getElementById('nbBarFill');
   if (fill) fill.style.width = pct.toFixed(1) + '%';
+  const epgFill = document.querySelector('#epg .ep.now .epProg > div');
+  if (epgFill) epgFill.style.width = pct.toFixed(1) + '%';
   if (lm && timeshiftProg.e2 > timeshiftProg.s) {
     const nowMs = Date.now();
     if (nowMs >= timeshiftProg.s && nowMs <= timeshiftProg.e2) {
@@ -1290,6 +1290,7 @@ async function playFromStart(st, p, seekSec = 0) {
     pendingSeekSec = adjSeek;
     paused = false;
     renderBottomBar(st);
+    renderEpg(st);
     syncTimeshiftUi();
     await playStation({ ...st, streamUrl: url }, false, adjSeek);
     if (gen !== playGen) return;
@@ -1445,7 +1446,7 @@ function renderBottomBar(st) {
     };
   }
   if (recBtn) {
-    recBtn.disabled = !(!st.drm && !isRec);
+    recBtn.disabled = !(!st.drm && !isRec && !!p);
     recBtn.classList.toggle('on', isRec);
     recBtn.onclick = (ev) => {
       ev.stopPropagation();
@@ -1494,9 +1495,12 @@ function toggleRecordAfter(st, p) {
 }
 function renderEpg(st) {
   hideProgDetail();
-  if (renderEpg._for !== st.name) { epgFilter = ''; const fi = document.getElementById('epgFilter'); if (fi) fi.value = ''; syncEpgFilterClear(); }
+  const sameSt = (renderEpg._for === st.name);
+  if (!sameSt) { renderEpg._hasScrolled = false; renderEpg._openedFor = null; epgFilter = ''; const fi = document.getElementById('epgFilter'); if (fi) fi.value = ''; syncEpgFilterClear(); }
   renderEpg._for = st.name;
-  const e = $('#epg'); e.innerHTML = '';
+  const e = $('#epg');
+  const prevScroll = sameSt ? e.scrollTop : -1;
+  e.innerHTML = '';
   const live = epgRowsFor(st);
   const rows = live || (st.epg || []).map((p) => ({ t: p.t !== undefined ? p.t : p[0], title: p.title !== undefined ? p.title : p[1], now: !!(p.now !== undefined ? p.now : p[2]), pct: p.pct !== undefined ? p.pct : (p[3] || 10) }));
   if (!rows.length) { e.innerHTML = '<div class="emptyNote">' + t('noEpg') + '</div>'; return; }
@@ -1509,7 +1513,7 @@ function renderEpg(st) {
     if (isPast && !canTimeshiftProg(st, p)) return false;
     return !q || normName(p.title).includes(q);
   });
-  let nowEl = null;
+  let nowEl = null, playEl = null;
   vis.forEach((p, idx) => {
     shown++;
     const day = p.day || (p.s ? new Date(p.s).toDateString() : null);
@@ -1522,10 +1526,19 @@ function renderEpg(st) {
     }
     const isNow = p.s ? (p.s <= nowMs && nowMs <= p.e2) : !!p.now;
     const isPast = p.e2 && p.e2 <= nowMs;
-    const pctLive = p.s && p.e2 > p.s ? Math.max(0, Math.min(100, Math.round(((nowMs - p.s) / (p.e2 - p.s)) * 100))) : null;
+    const isTsPlaying = !!(inTimeshift && timeshiftProg && ((p.id && timeshiftProg.id && p.id === timeshiftProg.id) || (p.s && timeshiftProg.s && p.s === timeshiftProg.s && p.title === timeshiftProg.title)));
+    const isPlaying = inTimeshift ? isTsPlaying : isNow;
+    let pctBar = null;
+    if (isPlaying && p.s && p.e2 > p.s) {
+      const refMs = isTsPlaying
+        ? ((timeshiftBeginMs || p.s) + (pendingSeekSec !== null ? pendingSeekSec : (Number.isFinite(video.currentTime) ? video.currentTime : 0)) * 1000)
+        : nowMs;
+      pctBar = Math.max(0, Math.min(100, Math.round(((refMs - p.s) / (p.e2 - p.s)) * 100)));
+    }
     const d = document.createElement('div');
-    d.className = 'ep' + (isNow ? ' now' : '') + (isPast ? ' past' : '');
+    d.className = 'ep' + (isPlaying ? ' now' : '') + (isPast ? ' past' : '');
     if (isNow) nowEl = d;
+    if (isTsPlaying) playEl = d;
     // Bez nativniho title tooltipu — popis ukazuje plovouci detail.
     const marked = !!reminders[remKey(curSrc, st, p)];
     const recOn = !!(reminders[remKey(curSrc, st, p)] && reminders[remKey(curSrc, st, p)].record) || !!(activeRec[curSrc] && activeRec[curSrc].station === st.name && activeRec[curSrc].title === p.title);
@@ -1534,11 +1547,11 @@ function renderEpg(st) {
     const canRecLive = !st.drm && (isNow || upcoming);
     const canDl = !st.drm && canTimeshiftProg(st, p) && (isPast || isNow || upcoming);
     const recAfterOn = !!(reminders[remKey(curSrc, st, p)] && reminders[remKey(curSrc, st, p)].recordAfter) || (isPast && !!(activeRec[curSrc] && activeRec[curSrc].station === st.name && activeRec[curSrc].title === p.title));
-    d.innerHTML = '<span class="t">' + p.t + '</span><span class="ti">' + p.title + (isNow ? '<span class="live">LIVE</span>' : '') + '</span>'
+    d.innerHTML = '<span class="t">' + p.t + '</span><span class="ti">' + p.title + (isTsPlaying ? '<span class="live">' + t('timeshift') + '</span>' : (isNow ? '<span class="live">' + t('live') + '</span>' : '')) + '</span>'
       + (canDl ? '<span class="recBtn' + (recAfterOn ? ' on' : '') + ' recAfter" title="' + (isPast ? 'Stáhnout z archivu' : 'Stáhnout z archivu po skončení pořadu (PC může mezitím spát)') + '">' + DL_SVG + '</span>' : '')
       + (canRecLive ? '<span class="recBtn' + (recOn ? ' on' : '') + ' recLive" title="' + (isNow ? 'Nahrávat hned' : 'Naplánovat nahrávání') + '">⏺</span>' : '')
       + (upcoming ? '<span class="rem' + (marked ? ' on' : '') + '" title="Připomenout a v daný čas přepnout">⏰</span>' : '')
-      + (isNow && pctLive !== null ? '<div class="epProg"><div style="width:' + pctLive + '%"></div></div>' : '');
+      + (isPlaying && pctBar !== null ? '<div class="epProg"><div style="width:' + pctBar + '%"></div></div>' : '');
     if (canDl) d.querySelector('.recAfter').onclick = (ev) => {
       ev.stopPropagation();
       if (isPast) toggleRecordFor(st, p, curSrc, true);
@@ -1631,7 +1644,21 @@ function renderEpg(st) {
     }
   }
   if (!shown && !otherShown && rows.length) e.innerHTML = '<div class="emptyNote">' + t('noFilterMatch') + '</div>';
-  if (nowEl && !q) requestAnimationFrame(() => { try { nowEl.scrollIntoView({ block: 'center' }); } catch {} });
+  if (sameSt && renderEpg._hasScrolled && prevScroll >= 0) {
+    e.scrollTop = prevScroll;
+  } else {
+    const scrollEl = playEl || nowEl;
+    if (scrollEl && !q) {
+      const center = () => {
+        if (!e.clientHeight) return;
+        const target = Math.max(0, scrollEl.offsetTop - e.offsetTop - (e.clientHeight / 2) + (scrollEl.offsetHeight / 2));
+        e.scrollTop = target;
+        if (target > 0) renderEpg._hasScrolled = true;
+      };
+      center();
+      requestAnimationFrame(center);
+    }
+  }
 }
 document.addEventListener('input', (e) => {
   if (e.target && e.target.id === 'epgFilter') {
@@ -1664,6 +1691,7 @@ function renderSources() {
   });
 }
 function renderFavs() {
+  if (dragging) return;
   hideEpgPop();
   const w = $('#favs');
   const hr = document.getElementById('hrFavs');
@@ -1680,7 +1708,7 @@ function renderFavs() {
     d.dataset.key = favKey(st);
     if (st.logo) { d.style.background = 'transparent'; d.innerHTML = '<img src="' + (logoTrimCache[st.logo] || st.logo) + '" alt="' + st.name + '">'; trimLogo(st.logo, d.querySelector('img')); }
     else { d.textContent = st.ini; d.style.background = st.color; }
-    d.title = st.name + ' (podrž a táhni pro přeskládání)';
+    d.title = st.name + ' (' + t('favDragTip') + ')';
     d.addEventListener('pointerdown', (e) => favDragStart(e, d, favKey(st)));
     d.onmouseenter = () => scheduleEpgPop(d, st);
     d.onmouseleave = () => hideEpgPopSoon();
@@ -1690,7 +1718,7 @@ function renderFavs() {
       const i = channels().findIndex((s) => s.name === st.name);
       if (i >= 0) {
         if (st.locked) {
-          toast(st.noAccess ? 'Stanice není ve vašem balíčku.' : 'Stanice je uzamčena (rodičovský zámek).', 6000);
+          toast(st.noAccess ? t('lockedPackage') : t('lockedParental'), 6000);
           log('zamčená stanice: ' + st.name);
           return;
         }
@@ -1810,7 +1838,7 @@ function renderStations() {
     r.onmouseleave = () => hideEpgPopSoon();
     r.onclick = () => {
       if (st.locked) {
-        toast(st.noAccess ? 'Stanice není ve vašem balíčku.' : 'Stanice je uzamčena (rodičovský zámek).', 6000);
+        toast(st.noAccess ? t('lockedPackage') : t('lockedParental'), 6000);
         log('zamčená stanice: ' + st.name);
         return;
       }
@@ -1824,10 +1852,9 @@ function renderStations() {
   });
 }
 function renderAll() { renderSources(); renderFavs(); renderReminders(); renderRecPanel(); renderStations(); renderStage(); updatePin(); }
-const CZ_MONTHS = ['led', 'úno', 'bře', 'dub', 'kvě', 'čen', 'čec', 'srp', 'zář', 'říj', 'lis', 'pro'];
 function shortDate(ms) {
   const d = new Date(ms);
-  return d.getDate() + '. ' + CZ_MONTHS[d.getMonth()];
+  return d.getDate() + '. ' + t('months')[d.getMonth()];
 }
 // Najit pristi vysilani stejneho poradu na stejnem kanale (nejblizsi den, podobny cas).
 function findNextOccurrence(r) {
@@ -1999,6 +2026,7 @@ async function reloadQuiet() {
    Hlasite (false) jen po prime akci uzivatele (klik/klavesa/login). */
 async function applySelection(quiet = true) {
   const gen = ++playGen;
+  const prevName = selBySrc[curSrc];
   paused = false;
   inTimeshift = false;
   timeshiftProg = null;
@@ -2024,8 +2052,17 @@ async function applySelection(quiet = true) {
       persistCache();
       renderStations(); renderStage();
     } catch (e) {
-      if (!quiet) toast('Stream se nepodařilo načíst: ' + (e?.message || e));
-      log('oneplay play: ' + (e?.message || e));
+      const msg = String(e?.message || e);
+      if (/bal[ií][cč]k|tarif|p[rř]edplat|access|opravn|oprávn|forbidden|403/i.test(msg)) {
+        st.locked = true; st.noAccess = true; persistCache();
+      }
+      if (prevName && prevName !== st.name) {
+        const pi = channels().findIndex((s) => s.name === prevName);
+        if (pi >= 0) { selIdx = pi; selBySrc[curSrc] = prevName; }
+      }
+      renderFavs(); renderStations(); renderStage();
+      if (!quiet) toast(t('streamLoadErr') + msg);
+      log('oneplay play: ' + msg);
       return;
     }
   }
@@ -2250,7 +2287,20 @@ document.addEventListener('mousemove', (e) => {
   lastMX = e.clientX;
   if (e.clientX >= window.innerWidth - 24) { clearTimeout(hideT); document.body.classList.add('rightOpen'); }
   // Levy panel jen kdyz je pro stanici program a na zdroji nebezi zive nahravani.
-  else if (e.clientX <= 24 && !isLiveRec(curSrc) && currentStation() && epgRowsFor(currentStation()).length) { clearTimeout(hideT); document.body.classList.add('leftOpen'); }
+  else if (e.clientX <= 24 && !isLiveRec(curSrc) && currentStation() && epgRowsFor(currentStation()).length) {
+    clearTimeout(hideT);
+    const wasOpen = document.body.classList.contains('leftOpen');
+    document.body.classList.add('leftOpen');
+    const st = currentStation();
+    if (!wasOpen && st && renderEpg._openedFor !== st.name) {
+      renderEpg._openedFor = st.name;
+      const epgEl = document.getElementById('epg');
+      const curEl = epgEl && epgEl.querySelector('.ep.now');
+      if (epgEl && curEl) {
+        epgEl.scrollTop = Math.max(0, curEl.offsetTop - epgEl.offsetTop - (epgEl.clientHeight / 2) + (curEl.offsetHeight / 2));
+      }
+    }
+  }
   // Horni lista s obrazovymi filtry.
   if (e.clientY <= 24 && e.clientX > 60 && e.clientX < window.innerWidth - 60) {
     cancelTopClose(); document.body.classList.add('topOpen');
@@ -2282,7 +2332,7 @@ document.addEventListener('mouseleave', () => {
 // ---------- Obrazove filtry + WebGL2 GPU shader (AMD CAS + Bicubic upscaling) ----------
 (function initVideoFilters() {
   const glCanvas = document.getElementById('glCanvas');
-  const DEF = { bright: 100, cont: 100, sat: 100, warm: 0, cas: 0, up: 0 };
+  const DEF = { bright: 100, cont: 100, sat: 100, warm: 0, cas: 0, up: 0, auto: 0, bypass: false };
   let flt = { ...DEF };
   try { const s = JSON.parse(localStorage.getItem('tv_video_flt') || 'null'); if (s) flt = { ...DEF, ...s }; } catch {}
   const PRESETS = {
@@ -2364,9 +2414,9 @@ document.addEventListener('mouseleave', () => {
   }
   function drawFrame() {
     rafId = 0;
-    const needGl = (flt.cas > 0 || flt.up > 0) && video.classList.contains('on') && !(currentStation() && currentStation().drm);
+    const needGl = !flt.bypass && (flt.cas > 0 || flt.up > 0) && video.classList.contains('on') && !(currentStation() && currentStation().drm);
     if (!needGl) { if (glCanvas) glCanvas.classList.remove('on'); return; }
-    if (!initGl()) { glCanvas.classList.remove('on'); return; }
+    if (!initGl() || gl.isContextLost()) { glCanvas.classList.remove('on'); return; }
     if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
       const dpr = window.devicePixelRatio || 1;
       const cw = Math.max(1, Math.round(stage.clientWidth * dpr));
@@ -2394,20 +2444,55 @@ document.addEventListener('mouseleave', () => {
     else rafId = requestAnimationFrame(drawFrame);
   }
   function kickGl() {
-    const needGl = (flt.cas > 0 || flt.up > 0) && video.classList.contains('on') && !(currentStation() && currentStation().drm);
+    const needGl = !flt.bypass && (flt.cas > 0 || flt.up > 0) && video.classList.contains('on') && !(currentStation() && currentStation().drm);
     if (!needGl) { if (glCanvas) glCanvas.classList.remove('on'); return; }
     if (!rafId) drawFrame();
   }
+  let autoB = 1.0, autoC = 1.0;
+  const autoCan = document.createElement('canvas'); autoCan.width = 32; autoCan.height = 18;
+  const autoCtx = autoCan.getContext('2d', { willReadFrequently: true });
+  function applyCssFilter() {
+    if (flt.bypass) {
+      video.style.filter = '';
+      if (glCanvas) glCanvas.style.filter = '';
+      return;
+    }
+    const b = (flt.bright / 100) * (flt.auto ? autoB : 1.0);
+    const c = (flt.cont / 100) * (flt.auto ? autoC : 1.0);
+    const css = (Math.abs(b - 1) < 0.005 && Math.abs(c - 1) < 0.005 && flt.sat === 100 && flt.warm === 0)
+      ? ''
+      : ('brightness(' + b.toFixed(3) + ') contrast(' + c.toFixed(3) + ') saturate(' + (flt.sat / 100) + ')' + (flt.warm > 0 ? (' sepia(' + (flt.warm / 100) + ')') : ''));
+    video.style.filter = css;
+    if (glCanvas) glCanvas.style.filter = css;
+  }
+  setInterval(() => {
+    if (flt.bypass || !flt.auto || !video.classList.contains('on') || video.paused || video.readyState < 2 || (currentStation() && currentStation().drm)) return;
+    try {
+      autoCtx.drawImage(video, 0, 0, 32, 18);
+      const d = autoCtx.getImageData(0, 0, 32, 18).data;
+      let sum = 0, sumSq = 0;
+      const n = 32 * 18;
+      for (let i = 0; i < d.length; i += 4) {
+        const y = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255;
+        sum += y; sumSq += y * y;
+      }
+      const mean = sum / n;
+      const std = Math.sqrt(Math.max(0, sumSq / n - mean * mean));
+      // Cilovy stredni jas ~0.46, plynuly prechod bez blikani.
+      const tgtB = Math.max(0.88, Math.min(1.22, 1.0 + (0.46 - mean) * 0.45));
+      const tgtC = Math.max(0.95, Math.min(1.24, 1.0 + (0.24 - std) * 0.7));
+      autoB += (tgtB - autoB) * 0.15;
+      autoC += (tgtC - autoC) * 0.15;
+      applyCssFilter();
+    } catch {}
+  }, 250);
   function saveFlt() {
     try { localStorage.setItem('tv_video_flt', JSON.stringify(flt)); } catch {}
     storeSet('videoFlt', flt).catch(() => {});
   }
   function applyFlt(persist = true) {
-    const css = (flt.bright === 100 && flt.cont === 100 && flt.sat === 100 && flt.warm === 0)
-      ? ''
-      : ('brightness(' + (flt.bright / 100) + ') contrast(' + (flt.cont / 100) + ') saturate(' + (flt.sat / 100) + ')' + (flt.warm > 0 ? (' sepia(' + (flt.warm / 100) + ')') : ''));
-    video.style.filter = css;
-    if (glCanvas) glCanvas.style.filter = css;
+    if (!flt.auto) { autoB = 1.0; autoC = 1.0; }
+    applyCssFilter();
     const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v; const ve = document.getElementById(id + 'V'); if (ve) ve.textContent = v + ' %'; };
     set('fltBright', flt.bright); set('fltCont', flt.cont); set('fltSat', flt.sat); set('fltWarm', flt.warm);
     document.querySelectorAll('#ptPresets .ptPill').forEach((b) => {
@@ -2416,6 +2501,10 @@ document.addEventListener('mouseleave', () => {
     });
     document.querySelectorAll('[data-cas]').forEach((b) => b.classList.toggle('on', +b.dataset.cas === flt.cas));
     document.querySelectorAll('[data-up]').forEach((b) => b.classList.toggle('on', +b.dataset.up === flt.up));
+    document.querySelectorAll('[data-auto]').forEach((b) => b.classList.toggle('on', +b.dataset.auto === flt.auto));
+    const eye = document.getElementById('ptBypass'), pt = document.getElementById('panelT');
+    if (eye) { eye.classList.toggle('on', !flt.bypass); eye.classList.toggle('off', !!flt.bypass); }
+    if (pt) pt.classList.toggle('bypassed', !!flt.bypass);
     if (persist) saveFlt();
     kickGl();
   }
@@ -2444,7 +2533,30 @@ document.addEventListener('mouseleave', () => {
   document.querySelectorAll('[data-up]').forEach((btn) => {
     btn.onclick = () => { flt.up = +btn.dataset.up; applyFlt(true); log('✨ GPU upscaling shader: ' + btn.textContent); };
   });
+  document.querySelectorAll('[data-auto]').forEach((btn) => {
+    btn.onclick = () => { flt.auto = +btn.dataset.auto; applyFlt(true); log('✨ auto jas/kontrast: ' + btn.textContent); };
+  });
+  const eyeBtn = document.getElementById('ptBypass');
+  if (eyeBtn) eyeBtn.onclick = () => {
+    flt.bypass = !flt.bypass;
+    applyFlt(true);
+    log(flt.bypass ? '👁 obrazové filtry dočasně vypnuty' : '👁 obrazové filtry zapnuty');
+  };
+  if (glCanvas) {
+    glCanvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      glCanvas.classList.remove('on');
+      gl = null; prog = null; tex = null; rafId = 0;
+      log('⚠ WebGL kontext ztracen (reset GPU ovladače) — přepínám na přímé video');
+    });
+    glCanvas.addEventListener('webglcontextrestored', () => {
+      gl = null; prog = null; tex = null; glFailed = false;
+      log('✨ WebGL kontext obnoven');
+      kickGl();
+    });
+  }
   video.addEventListener('play', kickGl);
+  video.addEventListener('playing', () => { paused = false; stage.classList.remove('paused'); });
   video.addEventListener('loadeddata', kickGl);
   applyFlt(false);
   storeGet('videoFlt').then((v) => {
@@ -2687,7 +2799,7 @@ function favDragEnd() {
     dragEl.classList.remove('ghost');
     dragEl.style.width = ''; dragEl.style.height = ''; dragEl.style.left = ''; dragEl.style.top = '';
     dragHole.replaceWith(dragEl);
-    favBySrc[curSrc] = [...$('#favs').querySelectorAll('.fav')].map((el) => el.dataset.key);
+    favBySrc[curSrc] = [...new Set([...$('#favs').querySelectorAll('.fav')].map((el) => el.dataset.key))];
     const to = favList().indexOf(dragName);
     const nm = (stationByFav(dragName) || {}).name || dragName;
     renderFavs(); renderStations(); persistSoon();
@@ -2704,46 +2816,77 @@ async function sltvLoadPlaylist() {
   const txt = await sltvGet('/api/playlist?format=m3u8&quality=40&capabilities=h264');
   return parseSltvPlaylist(JSON.parse(txt));
 }
-async function sltvLoadEpg() {
-  // Program na ~4 dny dopredu (4 okna po 1439 minutach), deduplikace pres eventId.
-  const out = {};
-  const seen = {};
+let sltvEpgP = null;
+async function sltvFetchEpgDay(d) {
   const p = (n) => String(n).padStart(2, '0');
-  for (let d = -7; d < 4; d++) {
-    const base = new Date(Date.now() + d * 1440 * 60000);
-    const tstr = base.getFullYear() + '-' + p(base.getMonth() + 1) + '-' + p(base.getDate()) + ' ' + p(base.getHours()) + ':' + p(base.getMinutes()) + ':00';
-    let j;
-    try { j = JSON.parse(await sltvGet('/api/epg?detail=description&duration=1439&time=' + encodeURIComponent(tstr))); }
-    catch (e) { log('EPG den +' + d + ' selhal: ' + (e?.message || e)); break; }
-    for (const [ch, events] of Object.entries(j.channels || {})) {
-      if (!out[ch]) { out[ch] = []; seen[ch] = new Set(); }
-      for (const ev of events || []) {
-        const key = ev.eventId !== undefined ? String(ev.eventId) : (ev.startTime + '|' + ev.title);
-        if (seen[ch].has(key)) continue;
-        seen[ch].add(key);
-        const s = new Date(String(ev.startTime || '').replace(' ', 'T')).getTime();
-        const e2 = new Date(String(ev.endTime || '').replace(' ', 'T')).getTime();
-        if (!s || !e2) continue;
-        out[ch].push({
-          id: ev.eventId !== undefined ? String(ev.eventId) : null,
-          canTimeshift: (ev.availability === 'timeshift') || (Number(ev.timeshift) > 0),
-          t: String(ev.startTime || '').slice(11, 16), e: String(ev.endTime || '').slice(11, 16),
-          title: ev.title || '?', desc: (ev.description || '').slice(0, 500), img: null, // sltv v EPG obrazek nedava
-          s, e2, day: new Date(s).toDateString(),
-        });
-      }
-    }
-  }
-  for (const ch of Object.keys(out)) out[ch].sort((a, b) => a.s - b.s);
-  return out;
+  const base = new Date(Date.now() + d * 1440 * 60000);
+  const tstr = base.getFullYear() + '-' + p(base.getMonth() + 1) + '-' + p(base.getDate()) + ' ' + p(base.getHours()) + ':' + p(base.getMinutes()) + ':00';
+  return JSON.parse(await sltvGet('/api/epg?detail=description&duration=1439&time=' + encodeURIComponent(tstr)));
 }
-const CZ_DAYS = ['Neděle', 'Pondělí', 'Úterý', 'Středa', 'Čtvrtek', 'Pátek', 'Sobota'];
+function sltvMergeEpg(out, seen, j) {
+  if (!j || !j.channels) return;
+  for (const [ch, events] of Object.entries(j.channels)) {
+    if (!out[ch]) { out[ch] = []; seen[ch] = new Set(); }
+    for (const ev of events || []) {
+      const key = ev.eventId !== undefined ? String(ev.eventId) : (ev.startTime + '|' + ev.title);
+      if (seen[ch].has(key)) continue;
+      seen[ch].add(key);
+      const s = new Date(String(ev.startTime || '').replace(' ', 'T')).getTime();
+      const e2 = new Date(String(ev.endTime || '').replace(' ', 'T')).getTime();
+      if (!s || !e2) continue;
+      out[ch].push({
+        id: ev.eventId !== undefined ? String(ev.eventId) : null,
+        canTimeshift: (ev.availability === 'timeshift') || (Number(ev.timeshift) > 0),
+        t: String(ev.startTime || '').slice(11, 16), e: String(ev.endTime || '').slice(11, 16),
+        title: ev.title || '?', desc: (ev.description || '').slice(0, 500), img: null,
+        s, e2, day: new Date(s).toDateString(),
+      });
+    }
+    out[ch].sort((a, b) => a.s - b.s);
+  }
+}
+function sltvLoadEpgBg() {
+  if (sltvEpgP) return sltvEpgP;
+  sltvEpgP = (async () => {
+    const out = {};
+    const seen = {};
+    const runBatch = async (days) => {
+      const res = await Promise.allSettled(days.map((d) => sltvFetchEpgDay(d)));
+      res.forEach((r, idx) => {
+        if (r.status === 'fulfilled') sltvMergeEpg(out, seen, r.value);
+        else log('EPG den ' + days[idx] + ' selhal: ' + (r.reason?.message || r.reason));
+      });
+      if (Object.keys(out).length) {
+        epgBySrc.sltv = out;
+        persistCache();
+        renderAll();
+      }
+    };
+    try {
+      // 1. Dnesek ihned, 2. budoucnost (+1..+3), 3. historie (-1..-7) paralelne po davkach.
+      await runBatch([0]);
+      await runBatch([1, 2, 3]);
+      await runBatch([-1, -2, -3]);
+      await runBatch([-4, -5, -6, -7]);
+      log('EPG načteno pro ' + Object.keys(epgBySrc.sltv).length + ' kanálů');
+      logEpgCoverage();
+    } catch (e) {
+      log('EPG: ' + (e?.message || e));
+    } finally {
+      sltvEpgP = null;
+    }
+    return out;
+  })();
+  return sltvEpgP;
+}
+async function sltvLoadEpg() {
+  return sltvLoadEpgBg();
+}
 function dayLabel(ms) {
   const d = new Date(ms), now = new Date();
-  const p = (n) => String(n).padStart(2, '0');
-  const tag = d.toDateString() === now.toDateString() ? ' · dnes'
-    : new Date(now.getTime() + 86400000).toDateString() === d.toDateString() ? ' · zítra' : '';
-  return CZ_DAYS[d.getDay()] + ' ' + d.getDate() + '. ' + (d.getMonth() + 1) + '.' + tag;
+  const tag = d.toDateString() === now.toDateString() ? (' · ' + t('today'))
+    : new Date(now.getTime() + 86400000).toDateString() === d.toDateString() ? (' · ' + t('tomorrow')) : '';
+  return t('daysUpper')[d.getDay()] + ' ' + d.getDate() + '. ' + (d.getMonth() + 1) + '.' + tag;
 }
 
 // ---------- trezor (sifrovane uloziste pres Rust backend) ----------
@@ -2867,11 +3010,8 @@ async function sltvLoadChannels() {
   if (!list.length) throw new Error('Seznam stanic je prázdný.');
   const lockedN = list.filter((s) => s.locked).length;
   log('playlist: ' + list.length + ' stanic (zamčených: ' + lockedN + ')');
-  try {
-    epgBySrc.sltv = await sltvLoadEpg();
-    log('EPG nacteno pro ' + Object.keys(epgBySrc.sltv).length + ' klicu');
-    logEpgCoverage();
-  } catch (e) { log('EPG: ' + e); }
+  // EPG stahovat asynchronne na pozadi (dnes -> budoucnost -> historie), neblokovat pripojeni zdroje.
+  sltvLoadEpgBg();
   return list;
 }
 
@@ -3480,23 +3620,25 @@ async function restore() {
     if (wasOpLogged && !(authMeta.oneplay && authMeta.oneplay.logged)) {
       toast('Oneplay: sezení vypršelo — přihlas se prosím znovu.', 10000);
     }
-    // Cache neuklada stream URL — pro zapamatovanou stanici dotahnout cerstve kanaly (stary token si opCall sam obnovi).
+    // Jakmile mame stanice z cache (s opId), spustit stream ihned; cerstve kanaly a EPG dotahnout na pozadi.
+    if (authMeta.oneplay && authMeta.oneplay.logged && liveChannels.oneplay.length) {
+      maybeAutoplay('oneplay').catch(() => {});
+    }
     if (authMeta.oneplay && authMeta.oneplay.logged && liveChannels.oneplay.length && !liveChannels.oneplay.some((s) => s.streamUrl)) {
       try {
         const t = await vaultGet('oneplay.token');
         const pid = authMeta.oneplay.profileId || await vaultGet('oneplay.profileId');
         if (t && pid) {
           const fresh = await withConnecting('oneplay', () => oneplayChannels(t, pid));
-          if (fresh.length) { liveChannels.oneplay = fresh; persistCache(); log('Oneplay: kanály dohrány pro autoplay'); }
+          if (fresh.length) { liveChannels.oneplay = fresh; persistCache(); log('Oneplay: kanály dohrány'); }
         }
       } catch (e) { log('Oneplay: čerstvé kanály selhaly: ' + (e?.message || e)); }
     }
-    // EPG se pri startu vzdy cerstve dotahne s viditelnym stavem (duvod videt "Pripojuji…" i u Oneplay).
+    // EPG se pri startu cerstve dotahne na pozadi, aniz by blokovalo spusteni streamu.
     if (authMeta.oneplay && authMeta.oneplay.logged) {
-      try {
-        const n = await withConnecting('oneplay', () => oneplayEnsureEpg(true));
-        if (n > 0) { persistCache(); renderAll(); }
-      } catch (e) { log('Oneplay EPG: ' + (e?.message || e)); }
+      withConnecting('oneplay', () => oneplayEnsureEpg(true))
+        .then((n) => { if (n > 0) { persistCache(); renderAll(); } })
+        .catch((e) => { log('Oneplay EPG: ' + (e?.message || e)); });
     }
     maybeAutoplay('oneplay').catch(() => {});
   }

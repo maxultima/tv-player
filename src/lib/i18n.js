@@ -36,6 +36,8 @@ const DICT = {
     fltWarm: 'Warmth',
     fltCas: 'Sharpening (CAS):',
     fltUp: 'Upscaling (GPU shader):',
+    fltAuto: 'Auto bright/contrast:',
+    fltEyeTitle: 'Toggle all filters on/off (before/after)',
     off: 'Off',
     subtle: 'Subtle',
     strong: 'Strong',
@@ -44,8 +46,14 @@ const DICT = {
     live: 'LIVE',
     timeshift: 'ARCHIVE',
     noDesc: 'No description.',
+    noProgram: 'No program',
     noEpg: 'No program guide for this station.',
     noFilterMatch: 'Nothing matches the filter.',
+    lockedPackage: 'Station is not in your subscription package.',
+    lockedParental: 'Station is locked (parental lock).',
+    streamLoadErr: 'Failed to load stream: ',
+    favDragTip: 'hold and drag to reorder',
+    months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
     btnFromStart: 'Play program from start',
     btnLive: 'Switch to live',
     btnRecStart: 'Record program from start',
@@ -145,6 +153,8 @@ const DICT = {
     fltWarm: 'Teplota',
     fltCas: 'Doostření (CAS):',
     fltUp: 'Upscaling (GPU shader):',
+    fltAuto: 'Auto jas/kontrast:',
+    fltEyeTitle: 'Vypnout / zapnout všechny filtry (porovnání)',
     off: 'Vypnuto',
     subtle: 'Jemné',
     strong: 'Silné',
@@ -152,8 +162,14 @@ const DICT = {
     live: 'ŽIVĚ',
     timeshift: 'ZPĚTNĚ',
     noDesc: 'Bez popisu.',
+    noProgram: 'Bez programu',
     noEpg: 'K této stanici není program.',
     noFilterMatch: 'Nic neodpovídá filtru.',
+    lockedPackage: 'Stanice není ve vašem balíčku.',
+    lockedParental: 'Stanice je uzamčena (rodičovský zámek).',
+    streamLoadErr: 'Stream se nepodařilo načíst: ',
+    favDragTip: 'podrž a táhni pro přeskládání',
+    months: ['led', 'úno', 'bře', 'dub', 'kvě', 'čen', 'čec', 'srp', 'zář', 'říj', 'lis', 'pro'],
     btnFromStart: 'Přehrát pořad od začátku',
     btnLive: 'Přehrávat živě',
     btnRecStart: 'Nahrát pořad od začátku',
@@ -286,11 +302,15 @@ export function applyI18n() {
   const ptGrps = document.querySelectorAll('#panelT .ptGrp > span');
   if (ptGrps[0]) ptGrps[0].textContent = t('fltCas');
   if (ptGrps[1]) ptGrps[1].textContent = t('fltUp');
+  if (ptGrps[2]) ptGrps[2].textContent = t('fltAuto');
+  setTitle('#ptBypass', 'fltEyeTitle');
   setText('[data-cas="0"]', 'off');
   setText('[data-cas="1"]', 'subtle');
   setText('[data-cas="2"]', 'strong');
   setText('[data-up="0"]', 'off');
   setText('[data-up="1"]', 'on');
+  setText('[data-auto="0"]', 'off');
+  setText('[data-auto="1"]', 'on');
 
   // Bottom bar buttons
   setTitle('#nbFromStartBtn', 'btnFromStart');
@@ -321,4 +341,67 @@ export function applyI18n() {
   setText('#btnCloseLogin', 'btnCancel');
   setText('#btnCloseLogin2', 'btnCancel');
   setText('#btnBackToCreds', 'btnBack');
+
+  // Help popup
+  const hp = document.getElementById('helpPop');
+  if (hp) {
+    const grid = hp.querySelector('.helpGrid');
+    if (grid) {
+      grid.innerHTML = curLang === 'cs'
+        ? `<div class="helpCol">
+            <div><h4>Přehrávání a okno</h4>
+              <div class="hrow"><span class="hkeys"><kbd>klik</kbd> / <kbd>Mezerník</kbd></span><span>pauza / přehrát</span></div>
+              <div class="hrow"><span class="hkeys"><kbd>2× klik</kbd> / <kbd>F</kbd></span><span>maximalizace / okno</span></div>
+              <div class="hrow"><span class="hkeys"><kbd>tah</kbd></span><span>přesun okna</span></div>
+              <div class="hrow"><span class="hkeys"><kbd>↑</kbd> <kbd>↓</kbd></span><span>přepnout stanici</span></div>
+              <div class="hrow"><span class="hkeys"><kbd>Esc</kbd></span><span>zavřít panely</span></div>
+            </div>
+            <div><h4>Panely a filtry</h4>
+              <div class="hrow"><span class="hkeys"><kbd>pravý okraj</kbd></span><span>zdroje, oblíbené, stanice</span></div>
+              <div class="hrow"><span class="hkeys"><kbd>levý okraj</kbd></span><span>program (EPG) a hledání</span></div>
+              <div class="hrow"><span class="hkeys"><kbd>horní okraj</kbd></span><span>obrazové filtry a GPU shadery</span></div>
+              <div class="hrow"><span class="hkeys"><kbd>dolní okraj</kbd></span><span>aktuální pořad a timeshift</span></div>
+            </div>
+          </div>
+          <div class="helpCol">
+            <div><h4>EPG a připomínky</h4>
+              <div class="hrow"><span class="hkeys">⏰</span><span>připomenout a přepnout</span></div>
+              <div class="hrow"><span class="hkeys">📌</span><span>automatické přeplánování</span></div>
+              <div class="hrow"><span class="hkeys">★</span><span>oblíbená stanice (tah = pořadí)</span></div>
+            </div>
+            <div><h4>Nahrávání a archiv</h4>
+              <div class="hrow"><span class="hkeys">⏺</span><span>živé / plánované nahrávání</span></div>
+              <div class="hrow"><span class="hkeys">⬇</span><span>stažení z archivu na pozadí</span></div>
+              <div class="hrow"><span class="hkeys">⏮ / ▶</span><span>od začátku / zpět na živé</span></div>
+            </div>
+          </div>`
+        : `<div class="helpCol">
+            <div><h4>Playback &amp; Window</h4>
+              <div class="hrow"><span class="hkeys"><kbd>click</kbd> / <kbd>Space</kbd></span><span>pause / resume</span></div>
+              <div class="hrow"><span class="hkeys"><kbd>2× click</kbd> / <kbd>F</kbd></span><span>maximize / window</span></div>
+              <div class="hrow"><span class="hkeys"><kbd>drag</kbd></span><span>move window</span></div>
+              <div class="hrow"><span class="hkeys"><kbd>↑</kbd> <kbd>↓</kbd></span><span>switch station</span></div>
+              <div class="hrow"><span class="hkeys"><kbd>Esc</kbd></span><span>close panels</span></div>
+            </div>
+            <div><h4>Panels &amp; Filters</h4>
+              <div class="hrow"><span class="hkeys"><kbd>right edge</kbd></span><span>sources, favorites, stations</span></div>
+              <div class="hrow"><span class="hkeys"><kbd>left edge</kbd></span><span>program guide (EPG) &amp; search</span></div>
+              <div class="hrow"><span class="hkeys"><kbd>top edge</kbd></span><span>video filters &amp; GPU shaders</span></div>
+              <div class="hrow"><span class="hkeys"><kbd>bottom edge</kbd></span><span>current program &amp; timeshift</span></div>
+            </div>
+          </div>
+          <div class="helpCol">
+            <div><h4>EPG &amp; Reminders</h4>
+              <div class="hrow"><span class="hkeys">⏰</span><span>remind &amp; auto-switch</span></div>
+              <div class="hrow"><span class="hkeys">📌</span><span>auto-replan recurring show</span></div>
+              <div class="hrow"><span class="hkeys">★</span><span>favorite station (drag = order)</span></div>
+            </div>
+            <div><h4>Recording &amp; Archive</h4>
+              <div class="hrow"><span class="hkeys">⏺</span><span>live / scheduled recording</span></div>
+              <div class="hrow"><span class="hkeys">⬇</span><span>background archive download</span></div>
+              <div class="hrow"><span class="hkeys">⏮ / ▶</span><span>from start / back to live</span></div>
+            </div>
+          </div>`;
+    }
+  }
 }

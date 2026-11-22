@@ -1,21 +1,20 @@
-use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
-use chacha20poly1305::{
+use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
-    ChaCha20Poly1305, Nonce,
+    Aes256Gcm, Nonce as AesNonce,
 };
+use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChaChaNonce};
 use rand::RngCore;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
-/// Sifrovany trezor pro prihlasovaci udaje (misto Stronghold pluginu, ktery
-/// v prostredi bez bundleru nema JS vazby).
-///
-/// - Klic: 32 nahodnych bytu v `vault.key` (profil uzivatele, bezna prava souboru).
-/// - Data: cela mapa polozek sifrovana ChaCha20-Poly1305 jako jeden blob (`vault.dat`).
-/// - V pameti nic necachujeme, kazdy prikaz cte/ desifruje znovu.
-/// - Vhodne pro: ochranu pred nahodnym nahlednutim a jinymi uzivateli PC.
-///   Nechrani pred cilenym utokem se spustenym malwarem pod stejnym uctem.
+const ENC_PREFIX: &str = "enc:v1:";
+
+/// Sifrovany trezor pro prihlasovaci udaje.
+/// - Klic: 32 nahodnych bytu v `vault.key` (profil uzivatele).
+/// - Data: AES-256-GCM s verzovanym prefixem `enc:v1:` v `vault.dat`.
+/// - Stary format (ChaCha20-Poly1305 JSON) se pri prvnim cteni automaticky zmigruje.
 
 fn vault_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
@@ -38,15 +37,15 @@ fn load_key(app: &AppHandle) -> Result<[u8; 32], String> {
     Ok(k)
 }
 
-/// Ciste sifrovani bez zavislosti na souborech (testovatelne).
-/// Vraci (nonce_base64, ciphertext_base64); kazde volani ma nahodny nonce.
+/// Ciste sifrovani AES-256-GCM bez zavislosti na souborech (testovatelne).
+/// Vraci (nonce_base64, ciphertext_base64); kazde volani ma nahodny 12B nonce.
 fn encrypt_map(key: &[u8; 32], map: &BTreeMap<String, String>) -> Result<(String, String), String> {
-    let cipher = ChaCha20Poly1305::new(key.into());
+    let cipher = Aes256Gcm::new(key.into());
     let mut nonce_b = [0u8; 12];
     OsRng.fill_bytes(&mut nonce_b);
     let pt = serde_json::to_vec(map).map_err(|e| e.to_string())?;
     let ct = cipher
-        .encrypt(Nonce::from_slice(&nonce_b), pt.as_slice())
+        .encrypt(AesNonce::from_slice(&nonce_b), pt.as_slice())
         .map_err(|e| e.to_string())?;
     Ok((B64.encode(nonce_b), B64.encode(ct)))
 }
@@ -57,10 +56,31 @@ fn decrypt_map(
     ct_b64: &str,
 ) -> Result<BTreeMap<String, String>, String> {
     let nonce_b = B64.decode(nonce_b64).map_err(|e| e.to_string())?;
+    if nonce_b.len() != 12 {
+        return Err("neplatny nonce".to_string());
+    }
+    let ct = B64.decode(ct_b64).map_err(|e| e.to_string())?;
+    let cipher = Aes256Gcm::new(key.into());
+    let pt = cipher
+        .decrypt(AesNonce::from_slice(&nonce_b), ct.as_slice())
+        .map_err(|_| "trezor nelze odsifrovat".to_string())?;
+    serde_json::from_slice(&pt).map_err(|e| e.to_string())
+}
+
+fn decrypt_legacy_chacha(
+    key: &[u8; 32],
+    nonce_b64: &str,
+    ct_b64: &str,
+) -> Result<BTreeMap<String, String>, String> {
+    let nonce_b = B64.decode(nonce_b64).map_err(|e| e.to_string())?;
+    if nonce_b.len() != 12 {
+        return Err("neplatny nonce".to_string());
+    }
     let ct = B64.decode(ct_b64).map_err(|e| e.to_string())?;
     let cipher = ChaCha20Poly1305::new(key.into());
-    let nonce = Nonce::from_slice(&nonce_b);
-    let pt = cipher.decrypt(nonce, ct.as_slice()).map_err(|_| "trezor nelze odsifrovat".to_string())?;
+    let pt = cipher
+        .decrypt(ChaChaNonce::from_slice(&nonce_b), ct.as_slice())
+        .map_err(|_| "trezor nelze odsifrovat".to_string())?;
     serde_json::from_slice(&pt).map_err(|e| e.to_string())
 }
 
@@ -70,19 +90,29 @@ fn read_store(app: &AppHandle) -> Result<BTreeMap<String, String>, String> {
         Ok(b) => b,
         Err(_) => return Ok(BTreeMap::new()),
     };
-    let v: serde_json::Value = serde_json::from_slice(&blob).map_err(|e| e.to_string())?;
-    let nonce_b64 = v.get("nonce").and_then(|x| x.as_str()).unwrap_or("");
-    let ct_b64 = v.get("ct").and_then(|x| x.as_str()).unwrap_or("");
     let key = load_key(app)?;
-    decrypt_map(&key, nonce_b64, ct_b64)
+    if let Ok(s) = std::str::from_utf8(&blob) {
+        if let Some(rest) = s.trim().strip_prefix(ENC_PREFIX) {
+            let mut parts = rest.splitn(2, ':');
+            let n = parts.next().unwrap_or("");
+            let c = parts.next().unwrap_or("");
+            return decrypt_map(&key, n, c);
+        }
+    }
+    // Automaticka jednorazova migrace ze stareho ChaCha20-Poly1305 JSON formatu.
+    let v: serde_json::Value = serde_json::from_slice(&blob).map_err(|_| "neplatny format trezoru".to_string())?;
+    let nonce_b64 = v.get("nonce").and_then(|x| x.as_str()).ok_or("odmitnut nezasifrovany trezor")?;
+    let ct_b64 = v.get("ct").and_then(|x| x.as_str()).ok_or("odmitnut nezasifrovany trezor")?;
+    let map = decrypt_legacy_chacha(&key, nonce_b64, ct_b64)?;
+    let _ = write_store(app, &map);
+    Ok(map)
 }
 
 fn write_store(app: &AppHandle, map: &BTreeMap<String, String>) -> Result<(), String> {
     let key = load_key(app)?;
     let (nonce_b64, ct_b64) = encrypt_map(&key, map)?;
-    let v = serde_json::json!({ "nonce": nonce_b64, "ct": ct_b64 });
-    std::fs::write(vault_dir(app)?.join("vault.dat"), serde_json::to_vec(&v).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
+    let payload = format!("{}{}:{}", ENC_PREFIX, nonce_b64, ct_b64);
+    std::fs::write(vault_dir(app)?.join("vault.dat"), payload.as_bytes()).map_err(|e| e.to_string())?;
     Ok(())
 }
 

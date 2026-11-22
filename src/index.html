@@ -37,16 +37,16 @@
   #stageProgram { font-size:17px; color:var(--dim); }
   #stageProgWrap { width:min(420px,60vw); height:8px; background:#00000088; border-radius:99px; overflow:hidden; }
   #stageProg { height:100%; width:0%; background:linear-gradient(90deg,var(--acc),#fb7185); border-radius:99px; transition:width .6s; }
-  #pauseVeil { position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+  #pauseVeil { position:absolute; inset:0; z-index:10; display:none; align-items:center; justify-content:center;
     background:rgba(0,0,0,.45); pointer-events:none; }
   #stage.paused #pauseVeil { display:flex; }
   #pauseVeil .glyph { width:110px; height:110px; border-radius:50%; background:#000000aa;
     border:2px solid #ffffff55; display:flex; align-items:center; justify-content:center; font-size:0; }
   #pauseVeil .glyph::before { content:""; border-left:34px solid #fff; border-top:22px solid transparent;
     border-bottom:22px solid transparent; margin-left:10px; }
-  #errToast { position:absolute; bottom:110px; left:50%; transform:translateX(-50%); display:none;
-    max-width:min(560px,80vw); font-size:13px; color:#fecaca; background:#7f1d1dcc;
-    border:1px solid #ef4444; padding:10px 16px; border-radius:12px; }
+  #errToast { position:fixed; bottom:110px; left:50%; transform:translateX(-50%); z-index:95; display:none;
+    max-width:min(560px,80vw); font-size:13px; color:#fecaca; background:#7f1d1dee;
+    border:1px solid #ef4444; padding:10px 16px; border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.6); }
   #panelR { position:fixed; top:0; right:0; bottom:0; width:350px; z-index:50;
     background:var(--panel); border-left:1px solid var(--line);
     transform:translateX(102%); transition:transform .25s ease; display:flex; flex-direction:column; }
@@ -476,6 +476,8 @@
     border-radius:8px; padding:3px 9px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; }
   .ptPill:hover { color:var(--text); border-color:var(--acc); }
   .ptPill.on { background:var(--acc); border-color:var(--acc); color:#fff; }
+  #ptBypass.off { opacity:.45; text-decoration:line-through; }
+  #panelT.bypassed .ptGrid, #panelT.bypassed .ptRow { opacity:.45; }
   .ptGrid { display:grid; grid-template-columns:1fr 1fr; gap:8px 20px; }
   .ptSlider { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--dim); }
   .ptSlider label { width:72px; flex:none; }
@@ -700,6 +702,7 @@
         <button class="ptPill" data-preset="vivid">Sport / Živé</button>
         <button class="ptPill" data-preset="night">Noční</button>
       </div>
+      <button class="ptPill on" id="ptBypass" title="Toggle all filters on/off">👁</button>
       <button class="ptPill" id="ptReset" title="Vrátit výchozí hodnoty">↺ Reset</button>
     </div>
     <div class="ptGrid">
@@ -719,6 +722,11 @@
         <span>Upscaling (GPU shader):</span>
         <button class="ptPill on" data-up="0">Vypnuto</button>
         <button class="ptPill" data-up="1">Zapnuto</button>
+      </div>
+      <div class="ptGrp">
+        <span>Auto bright/contrast:</span>
+        <button class="ptPill on" data-auto="0">Off</button>
+        <button class="ptPill" data-auto="1">On</button>
       </div>
     </div>
   </aside>

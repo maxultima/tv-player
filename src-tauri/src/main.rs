@@ -49,21 +49,6 @@ fn app_build() -> serde_json::Value {
     serde_json::json!({ "version": env!("CARGO_PKG_VERSION"), "time": env!("BUILD_TIME") })
 }
 
-/// Diagnosticky zapis (docasny): frontend posila snimky stavu/EPG ke cteni z disku.
-#[tauri::command]
-fn debug_dump(name: String, content: String) -> Result<(), String> {
-    if !name
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
-        || name.contains("..")
-    {
-        return Err("spatne jmeno".to_string());
-    }
-    let dir = std::env::temp_dir().join("tv-client-debug");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    std::fs::write(dir.join(name), content).map_err(|e| e.to_string())
-}
-
 #[tauri::command]
 async fn http_get(url: String, user_agent: Option<String>) -> Result<String, String> {
     let client = reqwest::Client::builder()
@@ -202,7 +187,6 @@ fn main() {
             vault::vault_clear,
             vault::vault_debug,
             app_build,
-            debug_dump,
             winstate::win_save,
             winstate::win_apply,
             winstate::win_start_drag,

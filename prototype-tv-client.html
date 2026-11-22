@@ -353,7 +353,7 @@
   body.leftOpen #panelL { transform:none; }
   #epgHead { padding:14px 14px 4px; font-size:16px; font-weight:700; }
   #epgSub { padding:0 14px 8px; font-size:12px; color:var(--dim); }
-  #epg { flex:1; overflow-y:auto; padding:0 8px 12px; }
+  #epg { flex:1; overflow-y:auto; padding:0 8px 12px; margin-right:10px; }
   /* Nazev poradu nikdy pod cas: cas je pevny sloupec, nazev ma vlastni sloupec (muze se lammat jen v nem).
      Aktualni porad muze zalomit progress bar na vlastni radek (je primy potomek .ep). */
   .ep { display:flex; flex-wrap:nowrap; gap:2px 10px; padding:6px 8px; border-radius:10px; cursor:pointer; align-items:baseline; }
@@ -397,6 +397,8 @@
     border-radius:8px; padding:3px 9px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; }
   .ptPill:hover { color:var(--text); border-color:var(--acc); }
   .ptPill.on { background:var(--acc); border-color:var(--acc); color:#fff; }
+  #ptBypass.off { opacity:.45; text-decoration:line-through; }
+  #panelT.bypassed .ptGrid, #panelT.bypassed .ptRow { opacity:.45; }
   .ptGrid { display:grid; grid-template-columns:1fr 1fr; gap:8px 20px; }
   .ptSlider { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--dim); }
   .ptSlider label { width:72px; flex:none; }
@@ -674,6 +676,7 @@
         <button class="ptPill" data-preset="vivid">Sport / Živé</button>
         <button class="ptPill" data-preset="night">Noční</button>
       </div>
+      <button class="ptPill on" id="ptBypass" title="Vypnout / zapnout všechny filtry">👁</button>
       <button class="ptPill" id="ptReset" title="Vrátit výchozí hodnoty">↺ Reset</button>
     </div>
     <div class="ptGrid">
@@ -693,6 +696,11 @@
         <span>Upscaling (GPU shader):</span>
         <button class="ptPill on" data-up="0">Vypnuto</button>
         <button class="ptPill" data-up="1">Zapnuto</button>
+      </div>
+      <div class="ptGrp">
+        <span>Auto jas/kontrast:</span>
+        <button class="ptPill on" data-auto="0">Vypnuto</button>
+        <button class="ptPill" data-auto="1">Zapnuto</button>
       </div>
     </div>
   </aside>
@@ -1681,7 +1689,7 @@ document.addEventListener('mouseleave',()=>{ cancelBottomClose(); cancelTopClose
 /* Obrazove filtry (horni popup menu) */
 (function initVideoFilters(){
   const stg=document.getElementById('stage');
-  const flt={ bright:100, cont:100, sat:100, warm:0, cas:0, up:0 };
+  const flt={ bright:100, cont:100, sat:100, warm:0, cas:0, up:0, auto:0, bypass:false };
   const PRESETS={
     default:{ bright:100, cont:100, sat:100, warm:0 },
     cinema:{ bright:95, cont:115, sat:92, warm:8 },
@@ -1690,8 +1698,12 @@ document.addEventListener('mouseleave',()=>{ cancelBottomClose(); cancelTopClose
   };
   function applyFlt(){
     const casBoost = flt.cas===2 ? 1.08 : (flt.cas===1 ? 1.04 : 1);
-    const css = 'brightness('+(flt.bright/100)+') contrast('+((flt.cont/100)*casBoost).toFixed(2)+') saturate('+(flt.sat/100)+')'+(flt.warm>0?(' sepia('+(flt.warm/100)+')'):'');
-    if(stg) stg.style.filter = (flt.bright===100&&flt.cont===100&&flt.sat===100&&flt.warm===0&&flt.cas===0) ? '' : css;
+    const autoB = flt.auto ? 1.06 : 1, autoC = flt.auto ? 1.08 : 1;
+    const css = 'brightness('+((flt.bright/100)*autoB).toFixed(2)+') contrast('+((flt.cont/100)*casBoost*autoC).toFixed(2)+') saturate('+(flt.sat/100)+')'+(flt.warm>0?(' sepia('+(flt.warm/100)+')'):'');
+    if(stg) stg.style.filter = (flt.bypass || (flt.bright===100&&flt.cont===100&&flt.sat===100&&flt.warm===0&&flt.cas===0&&!flt.auto)) ? '' : css;
+    const eye=document.getElementById('ptBypass'), pt=document.getElementById('panelT');
+    if(eye){ eye.classList.toggle('on',!flt.bypass); eye.classList.toggle('off',!!flt.bypass); }
+    if(pt) pt.classList.toggle('bypassed',!!flt.bypass);
     document.getElementById('fltBright').value=flt.bright; document.getElementById('fltBrightV').textContent=flt.bright+' %';
     document.getElementById('fltCont').value=flt.cont; document.getElementById('fltContV').textContent=flt.cont+' %';
     document.getElementById('fltSat').value=flt.sat; document.getElementById('fltSatV').textContent=flt.sat+' %';
@@ -1733,6 +1745,18 @@ document.addEventListener('mouseleave',()=>{ cancelBottomClose(); cancelTopClose
       log('✨ GPU upscaling shader: '+btn.textContent);
     };
   });
+  document.querySelectorAll('[data-auto]').forEach(btn=>{
+    btn.onclick=()=>{
+      flt.auto=+btn.dataset.auto;
+      document.querySelectorAll('[data-auto]').forEach(b=>b.classList.toggle('on',b===btn));
+      applyFlt(); log('✨ auto jas/kontrast: '+btn.textContent);
+    };
+  });
+  const eyeBtn=document.getElementById('ptBypass');
+  if(eyeBtn) eyeBtn.onclick=()=>{
+    flt.bypass=!flt.bypass; applyFlt();
+    log(flt.bypass?'👁 obrazové filtry dočasně vypnuty':'👁 obrazové filtry zapnuty');
+  };
 })();
 document.getElementById('panelR').addEventListener('mouseleave',scheduleClose);
 document.getElementById('panelL').addEventListener('mouseleave',scheduleClose);
