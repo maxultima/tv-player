@@ -34,10 +34,24 @@ const DICT = {
     fltCont: 'Contrast',
     fltSat: 'Saturation',
     fltWarm: 'Warmth',
+    fltTone: 'Tonal contrast',
+    fltNoise: 'Halftone',
+    fltGrain: 'Noise',
+    fltVig: 'Vignette',
     fltCas: 'Sharpening (CAS):',
     fltUp: 'Upscaling (GPU shader):',
     fltAuto: 'Auto bright/contrast:',
     fltEyeTitle: 'Toggle all filters on/off (before/after)',
+    profSelect: '— select profile —',
+    profBuiltIn: 'Presets',
+    profCustom: 'Custom profiles',
+    profSaveTitle: '💾 Save filter profile',
+    profSaveSub: 'Enter a name to save the current video filter settings.',
+    profSavePh: 'Profile name…',
+    profSaveBtn: 'Save',
+    profDelTitle: '🗑 Delete filter profile?',
+    profDelText: 'Are you sure you want to delete profile "{name}"?',
+    profDelBtn: 'Delete',
     off: 'Off',
     subtle: 'Subtle',
     strong: 'Strong',
@@ -151,10 +165,24 @@ const DICT = {
     fltCont: 'Kontrast',
     fltSat: 'Sytost',
     fltWarm: 'Teplota',
+    fltTone: 'Tonální kontrast',
+    fltNoise: 'Polotón',
+    fltGrain: 'Šum',
+    fltVig: 'Vinětace',
     fltCas: 'Doostření (CAS):',
     fltUp: 'Upscaling (GPU shader):',
     fltAuto: 'Auto jas/kontrast:',
     fltEyeTitle: 'Vypnout / zapnout všechny filtry (porovnání)',
+    profSelect: '— vybrat profil —',
+    profBuiltIn: 'Předvolby',
+    profCustom: 'Vlastní profily',
+    profSaveTitle: '💾 Uložit profil filtrů',
+    profSaveSub: 'Zadej název pro uložení aktuálního nastavení obrazových filtrů.',
+    profSavePh: 'Název profilu…',
+    profSaveBtn: 'Uložit',
+    profDelTitle: '🗑 Smazat profil filtrů?',
+    profDelText: 'Opravdu chceš smazat profil „{name}“?',
+    profDelBtn: 'Smazat',
     off: 'Vypnuto',
     subtle: 'Jemné',
     strong: 'Silné',
@@ -290,15 +318,23 @@ export function applyI18n() {
 
   // Top video filters panel
   setText('#panelT .ptTitle', 'fltTitle');
-  setText('#ptPresets [data-preset="default"]', 'presetDefault');
-  setText('#ptPresets [data-preset="cinema"]', 'presetCinema');
-  setText('#ptPresets [data-preset="vivid"]', 'presetVivid');
-  setText('#ptPresets [data-preset="night"]', 'presetNight');
   setText('#ptReset', 'fltReset');
   setText('label[for="fltBright"]', 'fltBright');
   setText('label[for="fltCont"]', 'fltCont');
   setText('label[for="fltSat"]', 'fltSat');
   setText('label[for="fltWarm"]', 'fltWarm');
+  setText('label[for="fltTone"]', 'fltTone');
+  setText('label[for="fltNoise"]', 'fltNoise');
+  setText('label[for="fltGrain"]', 'fltGrain');
+  setText('label[for="fltVig"]', 'fltVig');
+  setText('#profSaveModal h2', 'profSaveTitle');
+  setText('#profSaveModal p', 'profSaveSub');
+  setPh('#profSaveInput', 'profSavePh');
+  setText('#btnProfSaveCancel', 'btnCancel');
+  setText('#btnProfSaveOk', 'profSaveBtn');
+  setText('#profDelModal h2', 'profDelTitle');
+  setText('#btnProfDelCancel', 'btnCancel');
+  setText('#btnProfDelOk', 'profDelBtn');
   const ptGrps = document.querySelectorAll('#panelT .ptGrp > span');
   if (ptGrps[0]) ptGrps[0].textContent = t('fltCas');
   if (ptGrps[1]) ptGrps[1].textContent = t('fltUp');

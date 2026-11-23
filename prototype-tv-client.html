@@ -390,22 +390,42 @@
     display:flex; flex-direction:column; gap:10px;
     box-shadow:0 12px 40px rgba(0,0,0,.6); }
   body.topOpen #panelT { transform:translate(-50%, 0); }
-  .ptHead { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-  .ptTitle { font-size:13px; font-weight:700; margin-right:auto; display:flex; align-items:center; gap:6px; }
+  .ptHead { display:flex; align-items:center; gap:8px; padding-bottom:8px; border-bottom:1px solid #2a335066; }
+  .ptTitle { font-size:13px; font-weight:700; display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  .ptProfCtr { display:flex; align-items:center; gap:6px; margin:0 auto; }
+  .ptRightCtr { display:flex; align-items:center; gap:6px; }
   .ptPresets { display:flex; gap:5px; flex-wrap:wrap; }
   .ptPill { background:var(--panel2); border:1px solid var(--line); color:var(--dim);
     border-radius:8px; padding:3px 9px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; }
   .ptPill:hover { color:var(--text); border-color:var(--acc); }
   .ptPill.on { background:var(--acc); border-color:var(--acc); color:#fff; }
+  .ptDel { background:rgba(225,29,72,.18); border-color:#e11d4899; color:#fb7185; font-size:13.5px; line-height:1.1; }
+  .ptDel:hover:not(:disabled) { background:var(--acc); border-color:var(--acc); color:#fff; }
+  .ptDel:disabled { opacity:.3; cursor:default; }
+  #ptProfSel { background:#0b0e14; color:var(--text); border:1px solid var(--line);
+    border-radius:8px; padding:4px 8px; font-size:11px; font-family:inherit; min-width:165px; }
+  #ptBypass { font-size:13.5px; line-height:1.1; }
   #ptBypass.off { opacity:.45; text-decoration:line-through; }
   #panelT.bypassed .ptGrid, #panelT.bypassed .ptRow { opacity:.45; }
   .ptGrid { display:grid; grid-template-columns:1fr 1fr; gap:8px 20px; }
   .ptSlider { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--dim); }
-  .ptSlider label { width:72px; flex:none; }
+  .ptSlider label { width:104px; flex:none; white-space:nowrap; }
   .ptSlider input[type=range] { flex:1; accent-color:var(--acc); cursor:pointer; }
   .ptSlider .ptVal { width:40px; text-align:right; font-variant-numeric:tabular-nums; color:var(--text); font-size:11px; flex:none; }
-  .ptRow { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding-top:8px; border-top:1px solid #2a335066; font-size:11px; color:var(--dim); }
+  .ptRow { display:flex; flex-direction:column; gap:6px; padding-top:8px; border-top:1px solid #2a335066; font-size:11px; color:var(--dim); }
   .ptGrp { display:flex; align-items:center; gap:6px; }
+  .ptGrp > span { width:150px; flex:none; }
+  .ptGrp .ptPill { min-width:70px; text-align:center; }
+  .ptProfRow { display:flex; align-items:center; gap:6px; padding-top:8px; border-top:1px solid #2a335066; font-size:11px; color:var(--dim); }
+  .ptProfRow select, .ptProfRow input { background:#0b0e14; color:var(--text); border:1px solid var(--line);
+    border-radius:8px; padding:4px 8px; font-size:11px; font-family:inherit; }
+  .ptProfRow select { min-width:140px; }
+  .ptProfRow input { flex:1; min-width:110px; }
+  #fltVigOv { position:absolute; inset:0; pointer-events:none; z-index:4; opacity:0;
+    background:radial-gradient(ellipse at center, transparent 42%, rgba(0,0,0,.92) 100%); }
+  #fltNoiseOv { position:absolute; inset:0; pointer-events:none; z-index:4; opacity:0; mix-blend-mode:overlay;
+    background-image:radial-gradient(rgba(255,255,255,.35) 1px, transparent 0), radial-gradient(rgba(0,0,0,.35) 1px, transparent 0);
+    background-size:4px 4px; background-position:0 0, 2px 2px; }
   .ptBadge { background:#1e293b; border:1px solid #334155; color:#94a3b8; border-radius:6px; padding:2px 8px; font-size:10px; margin-left:auto; }
   .ptBadge b { color:#86efac; }
   #nbClockTab { position:absolute; right:16px; bottom:100%; margin-bottom:-1px;
@@ -470,6 +490,8 @@
       <div id="stageProgWrap"><div id="stageProg"></div></div>
     </div>
     <div class="scan"></div>
+    <div id="fltVigOv"></div>
+    <div id="fltNoiseOv"></div>
     <div id="pauseVeil"><div class="glyph"></div></div>
     <div id="recHiddenOverlay">
       <div class="recHiddenBox">
@@ -670,20 +692,25 @@
   <aside id="panelT">
     <div class="ptHead">
       <div class="ptTitle">✨ Obrazové filtry</div>
-      <div class="ptPresets" id="ptPresets">
-        <button class="ptPill on" data-preset="default">Výchozí</button>
-        <button class="ptPill" data-preset="cinema">Kino</button>
-        <button class="ptPill" data-preset="vivid">Sport / Živé</button>
-        <button class="ptPill" data-preset="night">Noční</button>
+      <div class="ptProfCtr">
+        <select id="ptProfSel" title="Vybrat předvolbu nebo vlastní profil"></select>
+        <button class="ptPill" id="ptProfSave" title="Uložit aktuální filtry jako vlastní profil">💾</button>
+        <button class="ptPill ptDel" id="ptProfDel" title="Smazat vybraný vlastní profil" disabled>🗑</button>
       </div>
-      <button class="ptPill on" id="ptBypass" title="Vypnout / zapnout všechny filtry">👁</button>
-      <button class="ptPill" id="ptReset" title="Vrátit výchozí hodnoty">↺ Reset</button>
+      <div class="ptRightCtr">
+        <button class="ptPill on" id="ptBypass" title="Vypnout / zapnout všechny filtry">👁</button>
+        <button class="ptPill" id="ptReset" title="Vrátit výchozí hodnoty">↺ Reset</button>
+      </div>
     </div>
     <div class="ptGrid">
       <div class="ptSlider"><label for="fltBright">Jas</label><input type="range" id="fltBright" min="50" max="150" value="100"><span class="ptVal" id="fltBrightV">100 %</span></div>
       <div class="ptSlider"><label for="fltCont">Kontrast</label><input type="range" id="fltCont" min="50" max="150" value="100"><span class="ptVal" id="fltContV">100 %</span></div>
       <div class="ptSlider"><label for="fltSat">Sytost</label><input type="range" id="fltSat" min="0" max="200" value="100"><span class="ptVal" id="fltSatV">100 %</span></div>
       <div class="ptSlider"><label for="fltWarm">Teplota</label><input type="range" id="fltWarm" min="0" max="40" value="0"><span class="ptVal" id="fltWarmV">0 %</span></div>
+      <div class="ptSlider"><label for="fltTone">Tonální kontrast</label><input type="range" id="fltTone" min="0" max="100" value="0"><span class="ptVal" id="fltToneV">0 %</span></div>
+      <div class="ptSlider"><label for="fltNoise">Polotón</label><input type="range" id="fltNoise" min="0" max="50" value="0"><span class="ptVal" id="fltNoiseV">0 %</span></div>
+      <div class="ptSlider"><label for="fltVig">Vinětace</label><input type="range" id="fltVig" min="0" max="100" value="0"><span class="ptVal" id="fltVigV">0 %</span></div>
+      <div class="ptSlider"><label for="fltGrain">Šum</label><input type="range" id="fltGrain" min="0" max="50" value="0"><span class="ptVal" id="fltGrainV">0 %</span></div>
     </div>
     <div class="ptRow">
       <div class="ptGrp">
@@ -704,6 +731,29 @@
       </div>
     </div>
   </aside>
+
+  <div class="protoModal" id="profSaveModal">
+    <div class="protoModalCard">
+      <h2>💾 Uložit profil filtrů</h2>
+      <p>Zadej název pro uložení aktuálního nastavení obrazových filtrů.</p>
+      <input id="profSaveInput" list="profSaveList" placeholder="Název profilu…" autocomplete="off" style="width:100%;background:#0b0e14;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:13px;font-family:inherit;margin-bottom:12px">
+      <datalist id="profSaveList"></datalist>
+      <div class="mRow">
+        <button class="btn" id="btnProfSaveCancel">Zrušit</button>
+        <button class="btn primary" id="btnProfSaveOk">Uložit</button>
+      </div>
+    </div>
+  </div>
+  <div class="protoModal" id="profDelModal">
+    <div class="protoModalCard">
+      <h2>🗑 Smazat profil filtrů?</h2>
+      <p id="profDelText">Opravdu chceš smazat vybraný profil?</p>
+      <div class="mRow">
+        <button class="btn" id="btnProfDelCancel">Zrušit</button>
+        <button class="btn primary" id="btnProfDelOk">Smazat</button>
+      </div>
+    </div>
+  </div>
 
   <!-- BOTTOM: now-playing EPG bar + clock tab -->
   <aside id="panelB">
@@ -1689,27 +1739,60 @@ document.addEventListener('mouseleave',()=>{ cancelBottomClose(); cancelTopClose
 /* Obrazove filtry (horni popup menu) */
 (function initVideoFilters(){
   const stg=document.getElementById('stage');
-  const flt={ bright:100, cont:100, sat:100, warm:0, cas:0, up:0, auto:0, bypass:false };
-  const PRESETS={
-    default:{ bright:100, cont:100, sat:100, warm:0 },
-    cinema:{ bright:95, cont:115, sat:92, warm:8 },
-    vivid:{ bright:105, cont:118, sat:128, warm:0 },
-    night:{ bright:82, cont:96, sat:88, warm:24 },
+  const vigOv=document.getElementById('fltVigOv'), noiseOv=document.getElementById('fltNoiseOv');
+  const DEF={ bright:100, cont:100, sat:100, warm:0, tone:0, noise:0, vig:0, cas:0, up:0, auto:0, bypass:false };
+  const flt={ ...DEF };
+  const BUILTIN={
+    cinema:{ label:'Kino', bright:95, cont:115, sat:92, warm:8, tone:25, noise:8, vig:35, cas:0, up:0, auto:0 },
+    vivid:{ label:'Sport / Živé', bright:105, cont:118, sat:128, warm:0, tone:35, noise:0, vig:0, cas:1, up:0, auto:0 },
+    night:{ label:'Noční', bright:82, cont:96, sat:88, warm:24, tone:10, noise:0, vig:20, cas:0, up:0, auto:0 },
   };
+  let profiles={
+    'Večerní film':{ bright:92, cont:116, sat:94, warm:12, tone:30, noise:10, vig:40, cas:1, up:1, auto:0 },
+    'Fotbal HD':{ bright:106, cont:120, sat:132, warm:0, tone:40, noise:0, vig:0, cas:2, up:1, auto:1 },
+  };
+  try{ const saved=JSON.parse(localStorage.getItem('proto_flt_profiles')||'null'); if(saved&&typeof saved==='object') profiles=saved; }catch{}
+  function saveProfiles(){ try{ localStorage.setItem('proto_flt_profiles', JSON.stringify(profiles)); }catch{} }
+  function renderProfiles(selVal){
+    const sel=document.getElementById('ptProfSel'), del=document.getElementById('ptProfDel');
+    if(!sel) return;
+    sel.innerHTML='<option value="">— vybrat profil —</option>';
+    const g1=document.createElement('optgroup'); g1.label='Předvolby';
+    Object.entries(BUILTIN).forEach(([k,v])=>{
+      const o=document.createElement('option'); o.value='builtin:'+k; o.textContent=v.label; g1.appendChild(o);
+    });
+    sel.appendChild(g1);
+    const customNames=Object.keys(profiles).sort();
+    if(customNames.length){
+      const g2=document.createElement('optgroup'); g2.label='Vlastní profily';
+      customNames.forEach(n=>{
+        const o=document.createElement('option'); o.value='custom:'+n; o.textContent=n; g2.appendChild(o);
+      });
+      sel.appendChild(g2);
+    }
+    if(selVal) sel.value=selVal;
+    if(del) del.disabled=!sel.value.startsWith('custom:');
+  }
   function applyFlt(){
     const casBoost = flt.cas===2 ? 1.08 : (flt.cas===1 ? 1.04 : 1);
+    const toneBoost = 1 + (flt.tone / 100) * 0.25;
     const autoB = flt.auto ? 1.06 : 1, autoC = flt.auto ? 1.08 : 1;
-    const css = 'brightness('+((flt.bright/100)*autoB).toFixed(2)+') contrast('+((flt.cont/100)*casBoost*autoC).toFixed(2)+') saturate('+(flt.sat/100)+')'+(flt.warm>0?(' sepia('+(flt.warm/100)+')'):'');
-    if(stg) stg.style.filter = (flt.bypass || (flt.bright===100&&flt.cont===100&&flt.sat===100&&flt.warm===0&&flt.cas===0&&!flt.auto)) ? '' : css;
+    const css = 'brightness('+((flt.bright/100)*autoB).toFixed(2)+') contrast('+((flt.cont/100)*casBoost*toneBoost*autoC).toFixed(2)+') saturate('+(flt.sat/100)+')'+(flt.warm>0?(' sepia('+(flt.warm/100)+')'):'');
+    const off = flt.bypass || (flt.bright===100&&flt.cont===100&&flt.sat===100&&flt.warm===0&&flt.tone===0&&flt.cas===0&&!flt.auto);
+    if(stg) stg.style.filter = off ? '' : css;
+    if(vigOv) vigOv.style.opacity = flt.bypass ? '0' : (flt.vig / 100).toFixed(2);
+    if(noiseOv) noiseOv.style.opacity = flt.bypass ? '0' : (flt.noise / 100).toFixed(2);
     const eye=document.getElementById('ptBypass'), pt=document.getElementById('panelT');
     if(eye){ eye.classList.toggle('on',!flt.bypass); eye.classList.toggle('off',!!flt.bypass); }
     if(pt) pt.classList.toggle('bypassed',!!flt.bypass);
-    document.getElementById('fltBright').value=flt.bright; document.getElementById('fltBrightV').textContent=flt.bright+' %';
-    document.getElementById('fltCont').value=flt.cont; document.getElementById('fltContV').textContent=flt.cont+' %';
-    document.getElementById('fltSat').value=flt.sat; document.getElementById('fltSatV').textContent=flt.sat+' %';
-    document.getElementById('fltWarm').value=flt.warm; document.getElementById('fltWarmV').textContent=flt.warm+' %';
+    [['fltBright','bright'],['fltCont','cont'],['fltSat','sat'],['fltWarm','warm'],['fltTone','tone'],['fltNoise','noise'],['fltVig','vig']].forEach(([id,k])=>{
+      document.getElementById(id).value=flt[k]; document.getElementById(id+'V').textContent=flt[k]+' %';
+    });
+    document.querySelectorAll('[data-cas]').forEach(b=>b.classList.toggle('on',+b.dataset.cas===flt.cas));
+    document.querySelectorAll('[data-up]').forEach(b=>b.classList.toggle('on',+b.dataset.up===flt.up));
+    document.querySelectorAll('[data-auto]').forEach(b=>b.classList.toggle('on',+b.dataset.auto===flt.auto));
   }
-  [['fltBright','bright'],['fltCont','cont'],['fltSat','sat'],['fltWarm','warm']].forEach(([id,k])=>{
+  [['fltBright','bright'],['fltCont','cont'],['fltSat','sat'],['fltWarm','warm'],['fltTone','tone'],['fltNoise','noise'],['fltVig','vig']].forEach(([id,k])=>{
     document.getElementById(id).oninput=e=>{
       flt[k]=+e.target.value;
       document.querySelectorAll('#ptPresets .ptPill').forEach(b=>b.classList.remove('on'));
@@ -1725,38 +1808,79 @@ document.addEventListener('mouseleave',()=>{ cancelBottomClose(); cancelTopClose
     };
   });
   document.getElementById('ptReset').onclick=()=>{
-    Object.assign(flt,{ bright:100, cont:100, sat:100, warm:0, cas:0, up:0 });
+    Object.assign(flt,DEF);
     document.querySelectorAll('#ptPresets .ptPill').forEach(b=>b.classList.toggle('on',b.dataset.preset==='default'));
-    document.querySelectorAll('[data-cas]').forEach(b=>b.classList.toggle('on',b.dataset.cas==='0'));
-    document.querySelectorAll('[data-up]').forEach(b=>b.classList.toggle('on',b.dataset.up==='0'));
+    const sel=document.getElementById('ptProfSel'), del=document.getElementById('ptProfDel');
+    if(sel) sel.value=''; if(del) del.disabled=true;
     applyFlt(); log('✨ obrazové filtry resetovány');
   };
   document.querySelectorAll('[data-cas]').forEach(btn=>{
-    btn.onclick=()=>{
-      flt.cas=+btn.dataset.cas;
-      document.querySelectorAll('[data-cas]').forEach(b=>b.classList.toggle('on',b===btn));
-      applyFlt(); log('✨ doostření (CAS): '+btn.textContent);
-    };
+    btn.onclick=()=>{ flt.cas=+btn.dataset.cas; applyFlt(); log('✨ doostření (CAS): '+btn.textContent); };
   });
   document.querySelectorAll('[data-up]').forEach(btn=>{
-    btn.onclick=()=>{
-      flt.up=+btn.dataset.up;
-      document.querySelectorAll('[data-up]').forEach(b=>b.classList.toggle('on',b===btn));
-      log('✨ GPU upscaling shader: '+btn.textContent);
-    };
+    btn.onclick=()=>{ flt.up=+btn.dataset.up; applyFlt(); log('✨ GPU upscaling shader: '+btn.textContent); };
   });
   document.querySelectorAll('[data-auto]').forEach(btn=>{
-    btn.onclick=()=>{
-      flt.auto=+btn.dataset.auto;
-      document.querySelectorAll('[data-auto]').forEach(b=>b.classList.toggle('on',b===btn));
-      applyFlt(); log('✨ auto jas/kontrast: '+btn.textContent);
-    };
+    btn.onclick=()=>{ flt.auto=+btn.dataset.auto; applyFlt(); log('✨ auto jas/kontrast: '+btn.textContent); };
   });
   const eyeBtn=document.getElementById('ptBypass');
   if(eyeBtn) eyeBtn.onclick=()=>{
     flt.bypass=!flt.bypass; applyFlt();
     log(flt.bypass?'👁 obrazové filtry dočasně vypnuty':'👁 obrazové filtry zapnuty');
   };
+  const profSel=document.getElementById('ptProfSel');
+  const profSave=document.getElementById('ptProfSave'), profDel=document.getElementById('ptProfDel');
+  const modal=document.getElementById('profSaveModal'), inp=document.getElementById('profSaveInput');
+  const openSaveModal=()=>{
+    if(!modal) return;
+    const dl=document.getElementById('profSaveList');
+    if(dl){ dl.innerHTML=''; Object.keys(profiles).sort().forEach(n=>{ const o=document.createElement('option'); o.value=n; dl.appendChild(o); }); }
+    inp.value=(profSel&&profSel.value.startsWith('custom:'))?profSel.value.slice(7):'';
+    modal.classList.add('on');
+    setTimeout(()=>{ inp.focus(); inp.select(); },30);
+  };
+  const closeSaveModal=()=>{ if(modal) modal.classList.remove('on'); };
+  const commitSave=()=>{
+    const n=(inp&&inp.value||'').trim();
+    if(!n){ if(inp) inp.focus(); return; }
+    const { bypass, ...snap } = flt;
+    profiles[n]=snap; saveProfiles(); renderProfiles('custom:'+n);
+    closeSaveModal();
+    log('💾 uložen profil filtrů: '+n);
+  };
+  if(profSel) profSel.onchange=()=>{
+    const v=profSel.value;
+    if(profDel) profDel.disabled=!v.startsWith('custom:');
+    if(v.startsWith('builtin:')){
+      const p=BUILTIN[v.slice(8)];
+      if(p){ Object.assign(flt, DEF, p, { bypass:false }); applyFlt(); log('✨ předvolba: '+p.label); }
+    } else if(v.startsWith('custom:')){
+      const n=v.slice(7);
+      if(profiles[n]){ Object.assign(flt, DEF, profiles[n], { bypass:false }); applyFlt(); log('✨ načten profil: '+n); }
+    }
+  };
+  if(profSave) profSave.onclick=openSaveModal;
+  document.getElementById('btnProfSaveCancel').onclick=closeSaveModal;
+  document.getElementById('btnProfSaveOk').onclick=commitSave;
+  if(inp) inp.onkeydown=e=>{ if(e.key==='Enter') commitSave(); else if(e.key==='Escape') closeSaveModal(); };
+  const delModal=document.getElementById('profDelModal'), delText=document.getElementById('profDelText');
+  let pendingDelName='';
+  const closeDelModal=()=>{ if(delModal) delModal.classList.remove('on'); pendingDelName=''; };
+  if(profDel) profDel.onclick=()=>{
+    const v=profSel&&profSel.value||''; if(!v.startsWith('custom:')) return;
+    pendingDelName=v.slice(7);
+    if(delText) delText.textContent='Opravdu chceš smazat profil „'+pendingDelName+'“?';
+    if(delModal) delModal.classList.add('on');
+  };
+  document.getElementById('btnProfDelCancel').onclick=closeDelModal;
+  document.getElementById('btnProfDelOk').onclick=()=>{
+    if(!pendingDelName||!profiles[pendingDelName]){ closeDelModal(); return; }
+    const n=pendingDelName;
+    delete profiles[n]; saveProfiles(); renderProfiles('');
+    closeDelModal();
+    log('🗑 smazán profil filtrů: '+n);
+  };
+  renderProfiles('');
 })();
 document.getElementById('panelR').addEventListener('mouseleave',scheduleClose);
 document.getElementById('panelL').addEventListener('mouseleave',scheduleClose);

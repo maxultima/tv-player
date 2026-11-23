@@ -469,22 +469,38 @@
     display:flex; flex-direction:column; gap:10px;
     box-shadow:0 12px 40px rgba(0,0,0,.6); }
   body.topOpen #panelT { transform:translate(-50%, 0); }
-  .ptHead { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-  .ptTitle { font-size:13px; font-weight:700; margin-right:auto; display:flex; align-items:center; gap:6px; }
-  .ptPresets { display:flex; gap:5px; flex-wrap:wrap; }
+  .ptHead { display:flex; align-items:center; gap:8px; padding-bottom:8px; border-bottom:1px solid #2a335066; }
+  .ptTitle { font-size:13px; font-weight:700; display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  .ptProfCtr { display:flex; align-items:center; gap:6px; margin:0 auto; }
+  .ptRightCtr { display:flex; align-items:center; gap:6px; }
   .ptPill { background:var(--panel2); border:1px solid var(--line); color:var(--dim);
     border-radius:8px; padding:3px 9px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; }
   .ptPill:hover { color:var(--text); border-color:var(--acc); }
   .ptPill.on { background:var(--acc); border-color:var(--acc); color:#fff; }
+  .ptDel { background:rgba(225,29,72,.18); border-color:#e11d4899; color:#fb7185; font-size:13.5px; line-height:1.1; }
+  .ptDel:hover:not(:disabled) { background:var(--acc); border-color:var(--acc); color:#fff; }
+  .ptDel:disabled { opacity:.3; cursor:default; }
+  #ptProfSel { background:#0b0e14; color:var(--text); border:1px solid var(--line);
+    border-radius:8px; padding:4px 8px; font-size:11px; font-family:inherit; min-width:165px; }
+  #ptBypass { font-size:13.5px; line-height:1.1; }
   #ptBypass.off { opacity:.45; text-decoration:line-through; }
   #panelT.bypassed .ptGrid, #panelT.bypassed .ptRow { opacity:.45; }
   .ptGrid { display:grid; grid-template-columns:1fr 1fr; gap:8px 20px; }
   .ptSlider { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--dim); }
-  .ptSlider label { width:72px; flex:none; }
+  .ptSlider label { width:104px; flex:none; white-space:nowrap; }
   .ptSlider input[type=range] { flex:1; accent-color:var(--acc); cursor:pointer; }
   .ptSlider .ptVal { width:40px; text-align:right; font-variant-numeric:tabular-nums; color:var(--text); font-size:11px; flex:none; }
-  .ptRow { display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding-top:8px; border-top:1px solid #2a335066; font-size:11px; color:var(--dim); }
+  .ptRow { display:flex; flex-direction:column; gap:6px; padding-top:8px; border-top:1px solid #2a335066; font-size:11px; color:var(--dim); }
   .ptGrp { display:flex; align-items:center; gap:6px; }
+  .ptGrp > span { width:150px; flex:none; }
+  .ptGrp .ptPill { min-width:70px; text-align:center; }
+  #fltVigOv { position:absolute; inset:0; pointer-events:none; z-index:4; opacity:0;
+    background:radial-gradient(ellipse at center, transparent 42%, rgba(0,0,0,.92) 100%); }
+  #fltNoiseOv { position:absolute; inset:0; pointer-events:none; z-index:4; opacity:0; mix-blend-mode:overlay;
+    background-image:radial-gradient(rgba(255,255,255,.35) 1px, transparent 0), radial-gradient(rgba(0,0,0,.35) 1px, transparent 0);
+    background-size:4px 4px; background-position:0 0, 2px 2px; }
+  #fltGrainOv { position:absolute; inset:0; pointer-events:none; z-index:4; opacity:0; mix-blend-mode:overlay;
+    image-rendering:pixelated; background-repeat:repeat; }
 </style>
 </head>
 <body>
@@ -501,6 +517,9 @@
       <div id="stageProgWrap"><div id="stageProg"></div></div>
     </div>
     <div class="scan"></div>
+    <div id="fltVigOv"></div>
+    <div id="fltNoiseOv"></div>
+    <div id="fltGrainOv"></div>
     <div id="pauseVeil"><div class="glyph"></div></div>
     <div id="errToast"></div>
     <div id="recHiddenOverlay">
@@ -695,33 +714,38 @@
 
   <aside id="panelT">
     <div class="ptHead">
-      <div class="ptTitle">✨ Obrazové filtry</div>
-      <div class="ptPresets" id="ptPresets">
-        <button class="ptPill on" data-preset="default">Výchozí</button>
-        <button class="ptPill" data-preset="cinema">Kino</button>
-        <button class="ptPill" data-preset="vivid">Sport / Živé</button>
-        <button class="ptPill" data-preset="night">Noční</button>
+      <div class="ptTitle">✨ Video Filters</div>
+      <div class="ptProfCtr">
+        <select id="ptProfSel"></select>
+        <button class="ptPill" id="ptProfSave" title="Save profile">💾</button>
+        <button class="ptPill ptDel" id="ptProfDel" title="Delete profile" disabled>🗑</button>
       </div>
-      <button class="ptPill on" id="ptBypass" title="Toggle all filters on/off">👁</button>
-      <button class="ptPill" id="ptReset" title="Vrátit výchozí hodnoty">↺ Reset</button>
+      <div class="ptRightCtr">
+        <button class="ptPill on" id="ptBypass" title="Toggle all filters on/off">👁</button>
+        <button class="ptPill" id="ptReset" title="Reset">↺ Reset</button>
+      </div>
     </div>
     <div class="ptGrid">
-      <div class="ptSlider"><label for="fltBright">Jas</label><input type="range" id="fltBright" min="50" max="150" value="100"><span class="ptVal" id="fltBrightV">100 %</span></div>
-      <div class="ptSlider"><label for="fltCont">Kontrast</label><input type="range" id="fltCont" min="50" max="150" value="100"><span class="ptVal" id="fltContV">100 %</span></div>
-      <div class="ptSlider"><label for="fltSat">Sytost</label><input type="range" id="fltSat" min="0" max="200" value="100"><span class="ptVal" id="fltSatV">100 %</span></div>
-      <div class="ptSlider"><label for="fltWarm">Teplota</label><input type="range" id="fltWarm" min="0" max="40" value="0"><span class="ptVal" id="fltWarmV">0 %</span></div>
+      <div class="ptSlider"><label for="fltBright">Brightness</label><input type="range" id="fltBright" min="50" max="150" value="100"><span class="ptVal" id="fltBrightV">100 %</span></div>
+      <div class="ptSlider"><label for="fltCont">Contrast</label><input type="range" id="fltCont" min="50" max="150" value="100"><span class="ptVal" id="fltContV">100 %</span></div>
+      <div class="ptSlider"><label for="fltSat">Saturation</label><input type="range" id="fltSat" min="0" max="200" value="100"><span class="ptVal" id="fltSatV">100 %</span></div>
+      <div class="ptSlider"><label for="fltWarm">Warmth</label><input type="range" id="fltWarm" min="0" max="40" value="0"><span class="ptVal" id="fltWarmV">0 %</span></div>
+      <div class="ptSlider"><label for="fltTone">Tonal contrast</label><input type="range" id="fltTone" min="0" max="100" value="0"><span class="ptVal" id="fltToneV">0 %</span></div>
+      <div class="ptSlider"><label for="fltNoise">Halftone</label><input type="range" id="fltNoise" min="0" max="50" value="0"><span class="ptVal" id="fltNoiseV">0 %</span></div>
+      <div class="ptSlider"><label for="fltVig">Vignette</label><input type="range" id="fltVig" min="0" max="100" value="0"><span class="ptVal" id="fltVigV">0 %</span></div>
+      <div class="ptSlider"><label for="fltGrain">Noise</label><input type="range" id="fltGrain" min="0" max="50" value="0"><span class="ptVal" id="fltGrainV">0 %</span></div>
     </div>
     <div class="ptRow">
       <div class="ptGrp">
-        <span>Doostření (CAS):</span>
-        <button class="ptPill on" data-cas="0">Vypnuto</button>
-        <button class="ptPill" data-cas="1">Jemné</button>
-        <button class="ptPill" data-cas="2">Silné</button>
+        <span>Sharpening (CAS):</span>
+        <button class="ptPill on" data-cas="0">Off</button>
+        <button class="ptPill" data-cas="1">Subtle</button>
+        <button class="ptPill" data-cas="2">Strong</button>
       </div>
       <div class="ptGrp">
         <span>Upscaling (GPU shader):</span>
-        <button class="ptPill on" data-up="0">Vypnuto</button>
-        <button class="ptPill" data-up="1">Zapnuto</button>
+        <button class="ptPill on" data-up="0">Off</button>
+        <button class="ptPill" data-up="1">On</button>
       </div>
       <div class="ptGrp">
         <span>Auto bright/contrast:</span>
@@ -730,6 +754,29 @@
       </div>
     </div>
   </aside>
+
+  <div class="protoModal" id="profSaveModal">
+    <div class="protoModalCard">
+      <h2>💾 Save filter profile</h2>
+      <p>Enter a name to save the current video filter settings.</p>
+      <input id="profSaveInput" list="profSaveList" placeholder="Profile name…" autocomplete="off" style="width:100%;background:#0b0e14;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:13px;font-family:inherit;margin-bottom:12px">
+      <datalist id="profSaveList"></datalist>
+      <div class="mRow">
+        <button class="btn" id="btnProfSaveCancel">Cancel</button>
+        <button class="btn primary" id="btnProfSaveOk">Save</button>
+      </div>
+    </div>
+  </div>
+  <div class="protoModal" id="profDelModal">
+    <div class="protoModalCard">
+      <h2>🗑 Delete filter profile?</h2>
+      <p id="profDelText"></p>
+      <div class="mRow">
+        <button class="btn" id="btnProfDelCancel">Cancel</button>
+        <button class="btn primary" id="btnProfDelOk">Delete</button>
+      </div>
+    </div>
+  </div>
 
   <aside id="panelB">
     <div id="nbStreamTab">--:--:--</div>

@@ -2040,13 +2040,14 @@ async function applySelection(quiet = true) {
     log('zamčená stanice: ' + st.name);
     return;
   }
-  if (!st.streamUrl && st.opId) {
+  if (st.opId && (!st.streamUrl || (Date.now() - (st._urlAt || 0) > 15 * 60000))) {
     try {
       const tok = await oneplayToken();
       const m = await oneplayPlayUrl(tok, st.opId);
       const url = m.hls || m.dash || m.dashDrm;
       if (!url) throw new Error('Žádný přehratelný stream (možná DRM).');
       st.streamUrl = url;
+      st._urlAt = Date.now();
       if (m.thumbTemplate) st.thumbTemplate = m.thumbTemplate;
       if (m.dashDrm && !m.hls) st.drm = m.drm;
       persistCache();
@@ -2332,15 +2333,51 @@ document.addEventListener('mouseleave', () => {
 // ---------- Obrazove filtry + WebGL2 GPU shader (AMD CAS + Bicubic upscaling) ----------
 (function initVideoFilters() {
   const glCanvas = document.getElementById('glCanvas');
-  const DEF = { bright: 100, cont: 100, sat: 100, warm: 0, cas: 0, up: 0, auto: 0, bypass: false };
+  const vigOv = document.getElementById('fltVigOv'), noiseOv = document.getElementById('fltNoiseOv'), grainOv = document.getElementById('fltGrainOv');
+  if (grainOv) {
+    const gc = document.createElement('canvas'); gc.width = 128; gc.height = 128;
+    const gctx = gc.getContext('2d'), gimg = gctx.createImageData(128, 128), gd = gimg.data;
+    for (let i = 0; i < gd.length; i += 4) { const v = (Math.random() * 255) | 0; gd[i] = v; gd[i + 1] = v; gd[i + 2] = v; gd[i + 3] = 255; }
+    gctx.putImageData(gimg, 0, 0);
+    grainOv.style.backgroundImage = 'url(' + gc.toDataURL('image/png') + ')';
+    grainOv.style.backgroundSize = '128px 128px';
+  }
+  const DEF = { bright: 100, cont: 100, sat: 100, warm: 0, tone: 0, noise: 0, grain: 0, vig: 0, cas: 0, up: 0, auto: 0, bypass: false };
   let flt = { ...DEF };
   try { const s = JSON.parse(localStorage.getItem('tv_video_flt') || 'null'); if (s) flt = { ...DEF, ...s }; } catch {}
-  const PRESETS = {
-    default: { bright: 100, cont: 100, sat: 100, warm: 0 },
-    cinema: { bright: 95, cont: 115, sat: 92, warm: 8 },
-    vivid: { bright: 105, cont: 118, sat: 128, warm: 0 },
-    night: { bright: 82, cont: 96, sat: 88, warm: 24 },
+  const BUILTIN = {
+    cinema: { key: 'presetCinema', bright: 95, cont: 115, sat: 92, warm: 8, tone: 25, noise: 8, vig: 35, cas: 0, up: 0, auto: 0 },
+    vivid: { key: 'presetVivid', bright: 105, cont: 118, sat: 128, warm: 0, tone: 35, noise: 0, vig: 0, cas: 1, up: 0, auto: 0 },
+    night: { key: 'presetNight', bright: 82, cont: 96, sat: 88, warm: 24, tone: 10, noise: 0, vig: 20, cas: 0, up: 0, auto: 0 },
   };
+  let profiles = {};
+  try { const sp = JSON.parse(localStorage.getItem('tv_flt_profiles') || 'null'); if (sp && typeof sp === 'object') profiles = sp; } catch {}
+  function saveProfiles() {
+    try { localStorage.setItem('tv_flt_profiles', JSON.stringify(profiles)); } catch {}
+    storeSet('videoFltProfiles', profiles).catch(() => {});
+  }
+  function renderProfiles(selVal) {
+    const sel = document.getElementById('ptProfSel'), del = document.getElementById('ptProfDel');
+    if (!sel) return;
+    const prev = selVal !== undefined ? selVal : sel.value;
+    sel.innerHTML = '<option value="">' + t('profSelect') + '</option>';
+    const g1 = document.createElement('optgroup'); g1.label = t('profBuiltIn');
+    Object.entries(BUILTIN).forEach(([k, v]) => {
+      const o = document.createElement('option'); o.value = 'builtin:' + k; o.textContent = t(v.key); g1.appendChild(o);
+    });
+    sel.appendChild(g1);
+    const customNames = Object.keys(profiles).sort();
+    if (customNames.length) {
+      const g2 = document.createElement('optgroup'); g2.label = t('profCustom');
+      customNames.forEach((n) => {
+        const o = document.createElement('option'); o.value = 'custom:' + n; o.textContent = n; g2.appendChild(o);
+      });
+      sel.appendChild(g2);
+    }
+    if (prev) sel.value = prev;
+    if (del) del.disabled = !sel.value.startsWith('custom:');
+  }
+  window.__renderFltProfiles = () => renderProfiles();
   let gl = null, prog = null, tex = null, uTexSize = null, uCas = null, uUp = null, rafId = 0, glFailed = false;
   function initGl() {
     if (gl || glFailed || !glCanvas) return !!gl;
@@ -2455,16 +2492,28 @@ document.addEventListener('mouseleave', () => {
     if (flt.bypass) {
       video.style.filter = '';
       if (glCanvas) glCanvas.style.filter = '';
+      if (vigOv) vigOv.style.opacity = '0';
+      if (noiseOv) noiseOv.style.opacity = '0';
+      if (grainOv) grainOv.style.opacity = '0';
       return;
     }
+    const toneBoost = 1 + (flt.tone / 100) * 0.25;
     const b = (flt.bright / 100) * (flt.auto ? autoB : 1.0);
-    const c = (flt.cont / 100) * (flt.auto ? autoC : 1.0);
+    const c = (flt.cont / 100) * toneBoost * (flt.auto ? autoC : 1.0);
     const css = (Math.abs(b - 1) < 0.005 && Math.abs(c - 1) < 0.005 && flt.sat === 100 && flt.warm === 0)
       ? ''
       : ('brightness(' + b.toFixed(3) + ') contrast(' + c.toFixed(3) + ') saturate(' + (flt.sat / 100) + ')' + (flt.warm > 0 ? (' sepia(' + (flt.warm / 100) + ')') : ''));
     video.style.filter = css;
     if (glCanvas) glCanvas.style.filter = css;
+    if (vigOv) vigOv.style.opacity = (flt.vig / 100).toFixed(2);
+    if (noiseOv) noiseOv.style.opacity = (flt.noise / 100).toFixed(2);
+    if (grainOv) grainOv.style.opacity = (flt.grain / 100).toFixed(2);
   }
+  setInterval(() => {
+    if (grainOv && !flt.bypass && flt.grain > 0 && !document.hidden) {
+      grainOv.style.backgroundPosition = ((Math.random() * 128) | 0) + 'px ' + ((Math.random() * 128) | 0) + 'px';
+    }
+  }, 50);
   setInterval(() => {
     if (flt.bypass || !flt.auto || !video.classList.contains('on') || video.paused || video.readyState < 2 || (currentStation() && currentStation().drm)) return;
     try {
@@ -2495,10 +2544,7 @@ document.addEventListener('mouseleave', () => {
     applyCssFilter();
     const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v; const ve = document.getElementById(id + 'V'); if (ve) ve.textContent = v + ' %'; };
     set('fltBright', flt.bright); set('fltCont', flt.cont); set('fltSat', flt.sat); set('fltWarm', flt.warm);
-    document.querySelectorAll('#ptPresets .ptPill').forEach((b) => {
-      const p = PRESETS[b.dataset.preset];
-      b.classList.toggle('on', !!(p && p.bright === flt.bright && p.cont === flt.cont && p.sat === flt.sat && p.warm === flt.warm));
-    });
+    set('fltTone', flt.tone); set('fltNoise', flt.noise); set('fltGrain', flt.grain); set('fltVig', flt.vig);
     document.querySelectorAll('[data-cas]').forEach((b) => b.classList.toggle('on', +b.dataset.cas === flt.cas));
     document.querySelectorAll('[data-up]').forEach((b) => b.classList.toggle('on', +b.dataset.up === flt.up));
     document.querySelectorAll('[data-auto]').forEach((b) => b.classList.toggle('on', +b.dataset.auto === flt.auto));
@@ -2508,25 +2554,79 @@ document.addEventListener('mouseleave', () => {
     if (persist) saveFlt();
     kickGl();
   }
-  [['fltBright', 'bright'], ['fltCont', 'cont'], ['fltSat', 'sat'], ['fltWarm', 'warm']].forEach(([id, k]) => {
+  [['fltBright', 'bright'], ['fltCont', 'cont'], ['fltSat', 'sat'], ['fltWarm', 'warm'], ['fltTone', 'tone'], ['fltNoise', 'noise'], ['fltGrain', 'grain'], ['fltVig', 'vig']].forEach(([id, k]) => {
     const el = document.getElementById(id);
     if (el) el.oninput = (e) => {
       flt[k] = +e.target.value;
       applyFlt(true);
     };
   });
-  document.querySelectorAll('#ptPresets .ptPill').forEach((btn) => {
-    btn.onclick = () => {
-      const p = PRESETS[btn.dataset.preset]; if (!p) return;
-      Object.assign(flt, p);
-      applyFlt(true); log('✨ filtr preset: ' + btn.textContent);
-    };
-  });
   const rst = document.getElementById('ptReset');
   if (rst) rst.onclick = () => {
     flt = { ...DEF };
+    const sel = document.getElementById('ptProfSel'), del = document.getElementById('ptProfDel');
+    if (sel) sel.value = ''; if (del) del.disabled = true;
     applyFlt(true); log('✨ obrazové filtry resetovány');
   };
+  const profSel = document.getElementById('ptProfSel'), profSave = document.getElementById('ptProfSave'), profDel = document.getElementById('ptProfDel');
+  const saveModal = document.getElementById('profSaveModal'), saveInp = document.getElementById('profSaveInput');
+  const delModal = document.getElementById('profDelModal'), delText = document.getElementById('profDelText');
+  let pendingDelName = '';
+  const closeSaveModal = () => { if (saveModal) saveModal.classList.remove('on'); };
+  const closeDelModal = () => { if (delModal) delModal.classList.remove('on'); pendingDelName = ''; };
+  const commitSave = () => {
+    const n = (saveInp && saveInp.value || '').trim();
+    if (!n) { if (saveInp) saveInp.focus(); return; }
+    const { bypass, ...snap } = flt;
+    profiles[n] = snap; saveProfiles(); renderProfiles('custom:' + n);
+    closeSaveModal();
+    log('💾 uložen profil filtrů: ' + n);
+  };
+  if (profSel) profSel.onchange = () => {
+    const v = profSel.value;
+    if (profDel) profDel.disabled = !v.startsWith('custom:');
+    if (v.startsWith('builtin:')) {
+      const p = BUILTIN[v.slice(8)];
+      if (p) { Object.assign(flt, DEF, p, { bypass: false }); applyFlt(true); log('✨ předvolba: ' + t(p.key)); }
+    } else if (v.startsWith('custom:')) {
+      const n = v.slice(7);
+      if (profiles[n]) { Object.assign(flt, DEF, profiles[n], { bypass: false }); applyFlt(true); log('✨ načten profil: ' + n); }
+    }
+  };
+  if (profSave) profSave.onclick = () => {
+    if (!saveModal) return;
+    const dl = document.getElementById('profSaveList');
+    if (dl) {
+      dl.innerHTML = '';
+      Object.keys(profiles).sort().forEach((n) => {
+        const o = document.createElement('option'); o.value = n; dl.appendChild(o);
+      });
+    }
+    saveInp.value = (profSel && profSel.value.startsWith('custom:')) ? profSel.value.slice(7) : '';
+    saveModal.classList.add('on');
+    setTimeout(() => { saveInp.focus(); saveInp.select(); }, 30);
+  };
+  document.getElementById('btnProfSaveCancel').onclick = closeSaveModal;
+  document.getElementById('btnProfSaveOk').onclick = commitSave;
+  if (saveInp) saveInp.onkeydown = (e) => { if (e.key === 'Enter') commitSave(); else if (e.key === 'Escape') closeSaveModal(); };
+  if (profDel) profDel.onclick = () => {
+    const v = (profSel && profSel.value) || ''; if (!v.startsWith('custom:')) return;
+    pendingDelName = v.slice(7);
+    if (delText) delText.textContent = t('profDelText', { name: pendingDelName });
+    if (delModal) delModal.classList.add('on');
+  };
+  document.getElementById('btnProfDelCancel').onclick = closeDelModal;
+  document.getElementById('btnProfDelOk').onclick = () => {
+    if (!pendingDelName || !profiles[pendingDelName]) { closeDelModal(); return; }
+    const n = pendingDelName;
+    delete profiles[n]; saveProfiles(); renderProfiles('');
+    closeDelModal();
+    log('🗑 smazán profil filtrů: ' + n);
+  };
+  renderProfiles('');
+  storeGet('videoFltProfiles').then((v) => {
+    if (v && typeof v === 'object') { profiles = v; renderProfiles(); }
+  }).catch(() => {});
   document.querySelectorAll('[data-cas]').forEach((btn) => {
     btn.onclick = () => { flt.cas = +btn.dataset.cas; applyFlt(true); log('✨ doostření (CAS): ' + btn.textContent); };
   });
@@ -2572,6 +2672,7 @@ document.addEventListener('mouseleave', () => {
     sel.onchange = () => {
       setLang(sel.value);
       storeSet('lang', sel.value).catch(() => {});
+      if (window.__renderFltProfiles) window.__renderFltProfiles();
       renderAll();
       if (currentStation()) renderBottomBar(currentStation());
       log('🌐 language: ' + sel.value.toUpperCase());
