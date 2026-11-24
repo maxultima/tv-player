@@ -2,13 +2,13 @@
 name: project-workflow
 description: >-
   Use this skill for general project work: enforcing strict project file access
-  boundaries, knowing when to stop and ask the user for clarification (in Czech),
-  and keeping README documentation up to date with every change.
+  boundaries, English file naming, and knowing when to stop and ask the user for
+  clarification (in Czech).
 ---
 
-# Project Workflow: File Access, Clarification & Documentation
+# Project Workflow: File Access & Clarification
 
-Follow these rules during all implementation, debugging, and documentation tasks.
+Follow these rules during all implementation and debugging tasks.
 
 ## 1. Project File Access & Cleanliness
 
@@ -25,12 +25,3 @@ Follow these rules during all implementation, debugging, and documentation tasks
 - **Ask in Czech**: Always formulate questions to the user in Czech.
 - **Bug/issue lists refer to the latest build**: When the user provides a list of issues, assume it always refers to the latest build — do not question or double-check which build they tested.
 - **Summarize before the final build**: Before running the final build, present the summary/conclusion first (the overview you would normally write at the end).
-
-## 3. Documentation (`README.md`)
-
-- **Update with every change**: With every meaningful code or behavior change, update `README.md` at `<project_root>` (or create it if it does not exist).
-- **Hierarchical READMEs**: In multi-module/multi-folder projects, update both the affected subfolder's `README.md` and the root `README.md`. Preserve UTF-8 encoding and existing line endings (CRLF/LF).
-- **Verifiable facts only**: Never put anything in `README.md` that cannot be verified in the codebase — no invented commands, non-existent scripts, or speculative plans.
-- **Required content**: Keep `README.md` as a cohesive, up-to-date document containing both:
-  1. A **User Manual** (how to install, configure, and use the project).
-  2. An **Architecture Overview** (structure, key modules, and how components fit together).

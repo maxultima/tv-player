@@ -4,6 +4,21 @@
 import { normName, matchEpgRows, liveState, parseSltvPlaylist } from './lib/epg.js';
 import { t, getLang, setLang, applyI18n } from './lib/i18n.js';
 import { invoke as ipcInvoke, listen, hasTauri } from './ipc/commands.js';
+import {
+  VODAFONE_WIDEVINE_DRM_ID,
+  VODAFONE_DMS_APP,
+  VODAFONE_DMS_CVER,
+  VODAFONE_BRAND_ID,
+  bytesToB64,
+  rsaEncryptPkcs1,
+  parseDmsConfig,
+  parseVodafoneChannels,
+  parseVodafoneEpgObjects,
+  buildVodafoneBookmarkBody,
+  parseVodafoneLoginResponse,
+  normalizeKalturaLogoUrl,
+  buildVodafoneThumbUrl,
+} from './lib/vodafone.js';
 
 // Tauri v2: nativni je window.__TAURI_INTERNALS__.invoke; __TAURI__.invoke je zalozni.
 // Diagnostika mostu (bezi i bez nej, vysledek cteme z localStorage na disku).
@@ -25,8 +40,11 @@ const $ = (s) => document.querySelector(s);
 const stage = $('#stage'), video = $('#video'), noiseCanvas = $('#noise');
 const errToast = $('#errToast');
 
-function log(msg) {
+function log(msg, level = 'INFO', tag = 'APP') {
   console.debug('[tv]', msg);
+  if (invoke) {
+    invoke('app_log', { level, tag, msg: String(msg).slice(0, 500) }).catch(() => {});
+  }
   try {
     const el = document.getElementById('actLog');
     if (!el) return;
@@ -35,7 +53,7 @@ function log(msg) {
     const d = document.createElement('div');
     d.innerHTML = '<span class="lt">' + p(t.getHours()) + ':' + p(t.getMinutes()) + ':' + p(t.getSeconds()) + '</span>' + String(msg).slice(0, 160);
     el.appendChild(d);
-    while (el.children.length > 8) el.firstChild.remove();
+    while (el.children.length > 24) el.firstChild.remove();
     el.scrollTop = el.scrollHeight;
   } catch {}
 }
@@ -132,6 +150,7 @@ async function apiGet(url) {
 const SOURCES = [
   { id: 'sltv', name: 'SledováníTV', logo: 'assets/sltv-icon.jpg', chip: 'plain', loginUrl: 'https://sledovat.tv/welcome/login' },
   { id: 'oneplay', name: 'Oneplay', logo: 'assets/oneplay-icon.jpg', chip: 'plain', loginUrl: 'https://www.oneplay.cz/prihlaseni' },
+  { id: 'vodafone', name: 'Vodafone TV', logo: 'data:image/svg+xml;utf8,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%20120%20120%27%3E%3Crect%20width=%27120%27%20height=%27120%27%20rx=%2714%27%20fill=%27%23e60000%27/%3E%3Ccircle%20cx=%2760%27%20cy=%2745%27%20r=%2724%27%20fill=%27%23ffffff%27/%3E%3Cpath%20d=%27M62%2028c-9%203-14%2010-14%2019%200%2010%207%2016%2015%2016%208%200%2014-6%2014-14%200-7-5-12-12-12-2%200-4%20.5-5%201.3%201-4.5%204.2-7.8%209-9.2L62%2028z%27%20fill=%27%23e60000%27/%3E%3Ctext%20x=%2760%27%20y=%2797%27%20text-anchor=%27middle%27%20font-family=%27system-ui,Segoe%20UI,sans-serif%27%20font-size=%2714%27%20font-weight=%27700%27%20fill=%27%23ffffff%27%3EVodafone%20TV%3C/text%3E%3C/svg%3E', chip: 'plain', loginUrl: 'https://www.vodafonetv.cz/' },
 ];
 const srcOf = (id) => SOURCES.find((s) => s.id === (id || curSrc));
 
@@ -139,21 +158,22 @@ let curSrc = 'sltv';
 let selIdx = 0;
 let selBySrc = {}; // zapamatovany vyber stanice pro kazdy zdroj (preziti prepnuti i restartu)
 let autoplayed = false, bootSelIdx = 0, bootSrc = 'sltv'; // autoplay probehne jen jednou a jen bez rucni zmeny
-let favBySrc = { sltv: [], oneplay: [] }; // oblibene STRIKTNE per-source: 'eid:<id>' | 'op:<id>' | 'name:<jmeno>'
-const favKey = (st) => (st.eid ? 'eid:' + st.eid : st.opId ? 'op:' + st.opId : 'name:' + st.name);
+let favBySrc = { sltv: [], oneplay: [], vodafone: [] }; // oblibene STRIKTNE per-source: 'eid:<id>' | 'op:<id>' | 'vf:<id>' | 'name:<jmeno>'
+const favKey = (st) => (st.eid ? 'eid:' + st.eid : st.opId ? 'op:' + st.opId : st.vfId ? 'vf:' + st.vfId : 'name:' + st.name);
 const favList = () => favBySrc[curSrc] || (favBySrc[curSrc] = []);
 function stationByFav(key) {
   const list = channels();
   if (typeof key !== 'string') return undefined;
   if (key.startsWith('eid:')) { const f = list.find((s) => s.eid && ('eid:' + s.eid) === key); if (f) return f; }
   else if (key.startsWith('op:')) { const f = list.find((s) => s.opId && ('op:' + s.opId) === key); if (f) return f; }
+  else if (key.startsWith('vf:')) { const f = list.find((s) => s.vfId && ('vf:' + s.vfId) === key); if (f) return f; }
   else if (key.startsWith('name:')) { const f = list.find((s) => s.name === key.slice(5)); if (f) return f; }
   else { const f = list.find((s) => s.name === key); if (f) return f; }
   return undefined;
 }
 const favHas = (st) => favList().includes(favKey(st));
 function findStationEverywhere(pred) {
-  for (const src of ['sltv', 'oneplay']) {
+  for (const src of ['sltv', 'oneplay', 'vodafone']) {
     const f = (liveChannels[src] || []).find(pred);
     if (f) return { src, st: f };
   }
@@ -193,10 +213,10 @@ function favToggle(st) {
 }
 let paused = false;
 let everPlayed = false;
-let liveChannels = { sltv: [], oneplay: [] };  // jen realna data po prihlaseni
-let epgBySrc = { sltv: {}, oneplay: {} };      // EPG STRIKTNE per-source, zadne sdileni klicu:
+let liveChannels = { sltv: [], oneplay: [], vodafone: [] };  // jen realna data po prihlaseni
+let epgBySrc = { sltv: {}, oneplay: {}, vodafone: {} };      // EPG STRIKTNE per-source, zadne sdileni klicu:
                                               // sltv: {stanice: [...]}, oneplay: {<channelId>: [...]}
-let authMeta = { sltv: null, oneplay: null }; // {logged, profileId?, profileName?, manual?, updatedAt}
+let authMeta = { sltv: null, oneplay: null, vodafone: null }; // {logged, profileId?, profileName?, manual?, updatedAt}
 let hls = null, dashPlayer = null;
 
 const channels = () => liveChannels[curSrc] || [];
@@ -217,15 +237,16 @@ async function debugDump(tag, listOverride) {
   } catch (e) { log('debug dump selhal: ' + (e?.message || e)); }
 }
 function epgRowsFor(st) {
-  // Striktne per-source: Oneplay jen svuj store (stejne channelId jako seznam), SledovaniTV jen svuj.
+  // Striktne per-source: kazdy zdroj jen svuj store.
   // Zadny fallback pres jmena mezi zdroji — cizi program je horsi nez zadny.
   if (st.opId) { const r = epgBySrc.oneplay[st.opId]; return r && r.length ? r : null; }
+  if (st.vfEpgId) { const r = epgBySrc.vodafone[st.vfEpgId]; return r && r.length ? r : null; }
   return matchEpgRows(epgBySrc.sltv, st.name, st.eid);
 }
 /* Pripominky: zvonecek v radku poradu → v dany cas aplikace sama prepne (vcetne zdroje) a spusti.
    Klic = zdroj|kanal|porad (stabilni id), prošle (po konci poradu) se mazeji. Muze jich byt vic. */
 let reminders = {};
-const chanKeyOf = (st) => st.eid || st.opId || st.name;
+const chanKeyOf = (st) => st.eid || st.opId || st.vfId || st.name;
 const rowIdOf = (p) => p.id || (p.s ? 's' + p.s : 't' + p.t);
 const remKey = (src, st, p) => src + '|' + chanKeyOf(st) + '|' + rowIdOf(p);
 function toggleReminder(st, p) {
@@ -322,7 +343,7 @@ function checkReminders() {
 }
 function logEpgCoverage() {
   // Jen SledovaniTV: vola se po jeho EPG; Oneplay ma vlastni kontrolu po svem loadu (jen log, zadny toast).
-  const all = channels().filter((st) => !st.opId);
+  const all = channels().filter((st) => !st.opId && !st.vfId);
   const miss = all.filter((st) => !epgRowsFor(st)).map((st) => st.name + (st.eid ? " [" + st.eid + "]" : " [bez id]"));
   log('EPG: ' + (all.length - miss.length) + '/' + all.length + ' stanic má program');
   if (miss.length) {
@@ -413,7 +434,7 @@ if (autostartChk && invoke) {
 // ---------- Nahravani (HLS -> .ts pres Rust backend) ----------
 let recCfg = { codec: 'ts', pad: 10, dir: '', fmt: '{date}_{time}_{channel}_{title}' };
 try { Object.assign(recCfg, JSON.parse(localStorage.getItem('tvklient.recCfg') || '{}')); } catch {}
-const activeRec = { sltv: null, oneplay: null };
+const activeRec = { sltv: null, oneplay: null, vodafone: null };
 const isLiveRec = (src) => !!(activeRec[src] && !activeRec[src].archiveDl);
 let pendingCollisionAction = null, stopModalSrc = null, stopModalCloseApp = false;
 function saveRecCfg() {
@@ -530,6 +551,11 @@ async function stopRecordingNow(src, discard = false) {
 async function startRecordingNow(src, st, p, fromStart = false) {
   if (!invoke) return;
   if (st.drm) return;
+  if (st.vfId) {
+    toast('Vodafone TV používá DRM ochranu — nahrávání není podporováno.');
+    log('nahrávání: Vodafone TV DRM stream nelze nahrávat (' + st.name + ')');
+    return;
+  }
   let url = fromStart ? await fetchTimeshiftUrl(st, p).catch(() => null) : st.streamUrl;
   if (!url && st.opId) {
     try {
@@ -676,12 +702,12 @@ function renderRecPanel() {
   document.getElementById('rhSub').textContent = t('streamHiddenSub') + ' · ' + formatElapsed(r.elapsedSec) + ' · ' + formatBytes(r.bytes);
 }
 setInterval(async () => {
-  if (!activeRec.sltv && !activeRec.oneplay) return;
+  if (!activeRec.sltv && !activeRec.oneplay && !activeRec.vodafone) return;
   if (invoke) {
     try {
       const st = await invoke('rec_status');
       const now = Date.now();
-      for (const src of ['sltv', 'oneplay']) {
+      for (const src of ['sltv', 'oneplay', 'vodafone']) {
         const r = activeRec[src];
         if (!r) continue;
         if (r.converting) {
@@ -816,7 +842,7 @@ document.getElementById('btnHelp').onmouseenter = (e) => {
   const pop = document.getElementById('helpPop');
   if (!pop) return;
   pop.classList.add('on');
-  const panelW = document.getElementById('panelR').offsetWidth || 350;
+  const panelW = document.getElementById('panelR').offsetWidth || 400;
   pop.style.left = Math.max(8, window.innerWidth - panelW - 10 - 520) + 'px';
   const r = e.target.getBoundingClientRect();
   const ph = pop.offsetHeight || 420;
@@ -956,7 +982,7 @@ function exitOffline() {
   wakeRecovery('net-back');
 }
 async function wakeRecovery(reason) {
-  if (document.hidden || (!authMeta.sltv && !authMeta.oneplay)) return;
+  if (document.hidden || (!authMeta.sltv && !authMeta.oneplay && !authMeta.vodafone)) return;
   if (recovering) { pendingWake = reason; return; }
   recovering = true;
   diag('wakeRecovery(' + reason + ') start, online=' + navigator.onLine);
@@ -976,7 +1002,7 @@ async function wakeRecovery(reason) {
       if (curSrc !== src) return;
       const st = currentStation();
       diag('wakeRecovery(' + src + '): hotovo, st=' + (st ? st.name : '-') + ' paused=' + paused);
-      if (st && !paused && (st.streamUrl || st.opId)) {
+      if (st && !paused && (st.streamUrl || st.opId || st.vfId)) {
         await reloadQuiet();
         diag('wakeRecovery(' + src + '): reloadQuiet hotov');
       }
@@ -992,6 +1018,10 @@ async function wakeRecovery(reason) {
     if (authMeta.oneplay && authMeta.oneplay.logged) jobs.push((async () => {
       try { await withConnecting('oneplay', () => oneplayEnsureEpg(true)); } catch (e) { log('obnova po probuzení (oneplay): ' + (e?.message || e)); }
       await finishSrc('oneplay');
+    })());
+    if (authMeta.vodafone && authMeta.vodafone.logged) jobs.push((async () => {
+      try { await withConnecting('vodafone', () => vtvEnsureEpg(true)); } catch (e) { log('obnova po probuzení (vodafone): ' + (e?.message || e)); }
+      await finishSrc('vodafone');
     })());
     await Promise.all(jobs);
   } finally {
@@ -1061,8 +1091,9 @@ setInterval(() => {
       }).catch(() => {});
     }
   }
-  // Propadle Oneplay EPG dotahnout hned (necekat na 15min timer).
+  // Propadle Oneplay/Vodafone EPG dotahnout hned (necekat na 15min timer).
   if (!opEpgFresh()) oneplayEnsureEpg().then((n) => { if (n > 0) { persistCache(); renderAll(); } }).catch(() => {});
+  if (!vtvEpgFresh()) vtvEnsureEpg().then((n) => { if (n > 0) { persistCache(); renderAll(); } }).catch(() => {});
   renderStations(); renderStage();
 }, 60000);
 setInterval(async () => {
@@ -1079,6 +1110,12 @@ setInterval(async () => {
       if (n > 0) { renderAll(); log('Oneplay EPG obnoveno (timer)'); }
     } catch (e) { log('Oneplay EPG timer selhal: ' + (e?.message || e)); }
   }
+  if (authMeta.vodafone && authMeta.vodafone.logged) {
+    try {
+      const n = await vtvEnsureEpg(true);
+      if (n > 0) { renderAll(); log('Vodafone TV EPG obnoveno (timer)'); }
+    } catch (e) { log('Vodafone TV EPG timer selhal: ' + (e?.message || e)); }
+  }
 }, 15 * 60 * 1000);
 // Pri resize ihned prekreslit: operacni system ukazuje nove odkrytou plochu
 // okna driv, nez WebView stihne prekreslit — okamzity redraw zkracuje cerny zablesk.
@@ -1086,6 +1123,7 @@ window.addEventListener('resize', () => { sizeNoise(); drawNoise(); });
 
 // ---------- video engine ----------
 function stopStream() {
+  vtvSsmStop().catch(() => {});
   try { video.pause(); } catch {}
   video.removeAttribute('src');
   try { video.load(); } catch {}
@@ -1112,7 +1150,51 @@ async function playStation(st, quiet = true, startPos = -1) {
   if (!st?.streamUrl) { if (!quiet) renderIdle(); else { video.classList.add('on'); syncStageVideo(); } return; }
   const url = st.streamUrl;
   try {
-    if (st.drm && window.dashjs) {
+    if (st.drm && st.drm.ssm && window.dashjs) {
+      await vtvPrepareSsmForPlay(st);
+      dashPlayer = dashjs.MediaPlayer().create();
+      const prot = {
+        'com.widevine.alpha': {
+          priority: 0,
+          serverURL: VTV_SSM_LICENSE_URL,
+          sessionType: 'temporary',
+          persistentState: 'required',
+        },
+      };
+      if (vtvCfg && vtvCfg.wvCertB64) prot['com.widevine.alpha'].serverCertificate = vtvCfg.wvCertB64;
+      dashPlayer.setProtectionData(prot);
+      const evs = dashjs.MediaPlayer.events || {};
+      const onDashErr = (kind) => (ev) => {
+        const msg = (ev && (ev.error?.message || ev.error?.code || ev.event?.message || JSON.stringify(ev).slice(0, 180))) || kind;
+        log('Vodafone ' + kind + ': ' + msg, 'ERROR', 'VTV');
+        if (!quiet) toast('Vodafone TV: ' + msg, 10000);
+      };
+      if (evs.ERROR) dashPlayer.on(evs.ERROR, onDashErr('DASH ERROR'));
+      if (evs.KEY_ERROR) dashPlayer.on(evs.KEY_ERROR, onDashErr('KEY_ERROR'));
+      if (evs.KEY_SYSTEM_SELECTED) dashPlayer.on(evs.KEY_SYSTEM_SELECTED, (ev) => {
+        if (ev?.error) onDashErr('KEY_SYSTEM_SELECTED')(ev);
+        else log('Vodafone DRM keySystem selected', 'INFO', 'VTV');
+      });
+      if (evs.LICENSE_REQUEST_COMPLETE) dashPlayer.on(evs.LICENSE_REQUEST_COMPLETE, (ev) => {
+        if (ev?.error) onDashErr('LICENSE_COMPLETE')(ev);
+        else log('Vodafone DRM licence přijata OK', 'INFO', 'VTV');
+      });
+      let mpdLogged = false;
+      if (evs.MANIFEST_LOADED) dashPlayer.on(evs.MANIFEST_LOADED, () => {
+        if (!mpdLogged) { mpdLogged = true; log('Vodafone MPD manifest načten', 'INFO', 'VTV'); }
+      });
+      if (evs.PLAYBACK_STARTED) dashPlayer.on(evs.PLAYBACK_STARTED, () => log('Vodafone přehrávání běží → ' + st.name, 'INFO', 'VTV'));
+      if (startPos > 0 && evs.PLAYBACK_METADATA_LOADED) {
+        let sought = false;
+        dashPlayer.on(evs.PLAYBACK_METADATA_LOADED, () => {
+          if (sought) return;
+          sought = true;
+          try { dashPlayer.seek(startPos); } catch {}
+        });
+      }
+      dashPlayer.initialize(video, url, !paused);
+      log('DASH+Widevine(SSM) → ' + st.name + ' (cert=' + (vtvCfg?.wvCertB64 ? vtvCfg.wvCertB64.length : 0) + ')', 'INFO', 'VTV');
+    } else if (st.drm && window.dashjs) {
       dashPlayer = dashjs.MediaPlayer().create();
       dashPlayer.setProtectionData({ 'com.widevine.alpha': { serverURL: st.drm.licenceUrl } });
       dashPlayer.initialize(video, url, !paused);
@@ -1235,10 +1317,18 @@ function syncTimeshiftUi() {
 function canTimeshiftProg(st, p) {
   if (!st || !p || !p.id) return false;
   if (st.opId) return !st.drm;
+  if (st.vfId) return !st.locked && (p.canTimeshift === true);
   return (Number(st.timeshift) > 0) && (p.canTimeshift !== false);
 }
 async function fetchTimeshiftUrl(st, p) {
   if (!st || !p || !p.id) return null;
+  if (st.vfId) {
+    const m = await vtvPlayUrl(st, { epgId: p.id });
+    if (!m || !m.url) return null;
+    st._vtvPlay = m;
+    st.drm = m.clearContent ? null : { ssm: true, token: m.drmToken || '' };
+    return m.url;
+  }
   if (st.opId) {
     const tok = await oneplayToken();
     const cid = String(p.id).includes('.') ? String(p.id) : ('epgitem.' + p.id);
@@ -1339,6 +1429,7 @@ function updateSeekPop(bar, ev, p, st) {
   const tpl = st && st.thumbTemplate;
   if (tpl && img) {
     // Oneplay/CETIN Broadpeak epoch = 2015-01-01T00:00:00Z (1420070400 s), 10 s na snimek (+20 s korekce live latency).
+    img.style.objectPosition = '';
     const thumbNum = Math.floor((targetMs / 1000 + 20 - 1420070400) / 10);
     const url = tpl.replace('{thumb}', String(thumbNum));
     if (url !== lastThumbUrl) {
@@ -1346,6 +1437,33 @@ function updateSeekPop(bar, ev, p, st) {
       img.onload = () => pop.classList.remove('timeOnly');
       img.onerror = () => pop.classList.add('timeOnly');
       img.src = url;
+    }
+  } else if (st && st.vfId && img) {
+    // Vodafone TV Visual Scrubber: 10x1 horizontalni sprite pas (200 s / sprite, 20 s / snimek).
+    const progId = p && p.id ? String(p.id) : null;
+    let base = (st._vtvPlay && st._vtvPlay.assetType === 'epg' && st._vtvPlay.url) ? st._vtvPlay.url : null;
+    if (!base && progId && st._vtvScrubber && st._vtvScrubber.progId === progId) base = st._vtvScrubber.url;
+    if (!base && progId && (!st._vtvScrubberPending || st._vtvScrubberPending !== progId)) {
+      st._vtvScrubberPending = progId;
+      vtvPlayUrl(st, { epgId: progId }).then((m) => {
+        if (m && m.url) st._vtvScrubber = { progId, url: m.url };
+      }).catch(() => {}).finally(() => {
+        if (st._vtvScrubberPending === progId) st._vtvScrubberPending = null;
+      });
+    }
+    const info = base ? buildVodafoneThumbUrl(base, (targetMs - startMs) / 1000, 'CATCHUP') : null;
+    if (info && info.url) {
+      img.style.objectPosition = ((info.thumbIndex / 9) * 100).toFixed(4) + '% 50%';
+      if (info.url !== lastThumbUrl) {
+        lastThumbUrl = info.url;
+        img.onload = () => pop.classList.remove('timeOnly');
+        img.onerror = () => pop.classList.add('timeOnly');
+        img.src = info.url;
+      } else if (img.complete && img.naturalWidth > 0) {
+        pop.classList.remove('timeOnly');
+      }
+    } else {
+      pop.classList.add('timeOnly');
     }
   } else {
     pop.classList.add('timeOnly');
@@ -1495,6 +1613,11 @@ function toggleRecordAfter(st, p) {
 }
 function renderEpg(st) {
   hideProgDetail();
+  if (st && st.vfId && authMeta.vodafone && authMeta.vodafone.logged) {
+    vtvLoadChannelEpg(st).then((n) => {
+      if (n > 0 && currentStation() && chanKeyOf(currentStation()) === chanKeyOf(st)) renderStage();
+    }).catch(() => {});
+  }
   const sameSt = (renderEpg._for === st.name);
   if (!sameSt) { renderEpg._hasScrolled = false; renderEpg._openedFor = null; epgFilter = ''; const fi = document.getElementById('epgFilter'); if (fi) fi.value = ''; syncEpgFilterClear(); }
   renderEpg._for = st.name;
@@ -1846,7 +1969,7 @@ function renderStations() {
         if (paused) { paused = false; resumeLive(); stage.classList.remove('paused'); persistSoon(); log('▶ přehrávání'); }
         return; // jiz hraje, nic neprepinat
       }
-      selIdx = i; applySelection(false); log('stanice → ' + st.name + ' („' + st.now + '“)');
+      selIdx = i; applySelection(false); log('stanice → ' + st.name + ((liveInfo(st).now || st.now) ? (' („' + (liveInfo(st).now || st.now) + '“)') : ''));
     };
     w.appendChild(r);
   });
@@ -1880,7 +2003,7 @@ function findNextOccurrence(r) {
 // Vrátí true, když se povedlo (starý záznam nahrazen novým).
 // Nenalezeno + EPG vůbec není (síť) → zkusit později; nenalezeno + EPG je → chyba na řádku, rozhodne uživatel.
 function epgAvailable() {
-  return Object.keys(epgBySrc.sltv).length > 0 || Object.keys(epgBySrc.oneplay).length > 0;
+  return Object.keys(epgBySrc.sltv).length > 0 || Object.keys(epgBySrc.oneplay).length > 0 || Object.keys(epgBySrc.vodafone).length > 0;
 }
 function planNext(key, r) {
   const p = findNextOccurrence(r);
@@ -1952,7 +2075,7 @@ function renderReminders() {
     const r = reminders[k];
     const old = r.e2 && r.e2 <= Date.now();
     const stName = (() => {
-      for (const src of ['sltv', 'oneplay']) {
+      for (const src of ['sltv', 'oneplay', 'vodafone']) {
         const f = (liveChannels[src] || []).find((s) => chanKeyOf(s) === r.chan);
         if (f) return f.name;
       }
@@ -2016,7 +2139,7 @@ async function reloadQuiet() {
   const st = currentStation();
   if (!st || paused) return;
   try {
-    if (st.opId) st.streamUrl = null; // op URL po vypadku expirovana → dohledat znovu v applySelection
+    if (st.opId || st.vfId) st.streamUrl = null; // URL po vypadku expirovana → dohledat znovu v applySelection
     else await fetchStreamUrl(st); // sltv manifesty expiruji: cerstve URL z playlistu
     await applySelection(true);
   } catch {}
@@ -2067,6 +2190,33 @@ async function applySelection(quiet = true) {
       return;
     }
   }
+  if (st.vfId && (!st.streamUrl || (Date.now() - (st._urlAt || 0) > 15 * 60000))) {
+    try {
+      const m = await vtvPlayUrl(st);
+      if (!m || !m.url) throw new Error('Žádný přehratelný stream.');
+      st.streamUrl = m.url;
+      st._urlAt = Date.now();
+      st._vtvPlay = m;
+      st.drm = m.clearContent ? null : { ssm: true, token: m.drmToken || '' };
+      persistCache();
+      renderStations(); renderStage();
+      // Na pozadi doplnit vice dnu EPG pro vybranou stanici (4d archiv + program).
+      vtvLoadChannelEpg(st).then((n) => { if (n > 0) renderStage(); }).catch(() => {});
+    } catch (e) {
+      const msg = String(e?.message || e);
+      if (/entitl|not.?subscrib|bal[ií][cč]k|forbidden|403|3032/i.test(msg)) {
+        st.locked = true; st.noAccess = true; persistCache();
+      }
+      if (prevName && prevName !== st.name) {
+        const pi = channels().findIndex((s) => s.name === prevName);
+        if (pi >= 0) { selIdx = pi; selBySrc[curSrc] = prevName; }
+      }
+      renderFavs(); renderStations(); renderStage();
+      if (!quiet) toast(t('streamLoadErr') + msg);
+      log('vodafone play: ' + msg);
+      return;
+    }
+  }
   if (gen !== playGen) return;
   wantPlay = true;
   playStation(st, quiet); persistSoon();
@@ -2090,8 +2240,9 @@ function switchSource(id) {
 async function logoutSource(id) {
   authMeta[id] = null;
   liveChannels[id] = [];
-  // Jen sltv klice ('op:' patri Oneplay a zustavaji).
+  // Jen klice daneho zdroje (ostatni zdroje zustavaji).
   if (id === 'sltv') epgBySrc.sltv = {};
+  if (id === 'vodafone') { epgBySrc.vodafone = {}; vtvResetSession(); }
   if (id === curSrc) { selIdx = 0; wantPlay = false; renderIdle(); }
   try { await vaultClear(id + '.'); } catch (e) { log('trezor: ' + e); }
   persistSoon(); persistCache();
@@ -2141,6 +2292,17 @@ async function fetchStreamUrl(st) {
       const m = await oneplayPlayUrl(t, st.opId);
       const url = m.hls || m.dash || m.dashDrm;
       if (url) { st.streamUrl = url; if (m.dashDrm && !m.hls) st.drm = m.drm; return url; }
+      return null;
+    }
+    if (st.vfId) {
+      const m = await vtvPlayUrl(st);
+      if (m && m.url) {
+        st.streamUrl = m.url;
+        st._urlAt = Date.now();
+        st._vtvPlay = m;
+        st.drm = m.clearContent ? null : { ssm: true, token: m.drmToken || '' };
+        return m.url;
+      }
       return null;
     }
     if (st.eid && authMeta.sltv && !authMeta.sltv.manual) {
@@ -2692,7 +2854,7 @@ document.addEventListener('mouseleave', () => {
   const savedL = +(localStorage.getItem('tvklient.panelW_L') || 0);
   window.__panelW = { R: savedR, L: savedL };
   function applyW() {
-    if (window.__panelW.R > 0) $('#panelR').style.width = window.__panelW.R + 'px';
+    if (window.__panelW.R > 0) $('#panelR').style.width = Math.max(400, window.__panelW.R) + 'px';
     if (window.__panelW.L > 0) $('#panelL').style.width = window.__panelW.L + 'px';
   }
   applyW();
@@ -2713,7 +2875,8 @@ document.addEventListener('mouseleave', () => {
       e.preventDefault(); e.stopPropagation(); h.setPointerCapture(e.pointerId); h.classList.add('drag');
       const move = (ev) => {
         const wpx = pid === 'panelR' ? window.innerWidth - ev.clientX : ev.clientX;
-        p.style.width = Math.max(220, Math.min(620, wpx)) + 'px';
+        const minW = pid === 'panelR' ? 400 : 220;
+        p.style.width = Math.max(minW, Math.min(620, wpx)) + 'px';
       };
       const up = () => {
         h.classList.remove('drag');
@@ -2838,7 +3001,7 @@ function showEpgPop(row, st) {
     list.appendChild(d);
   });
   pop.classList.add('on');
-  const panelW = document.getElementById('panelR').offsetWidth || 350;
+  const panelW = document.getElementById('panelR').offsetWidth || 400;
   pop.style.left = Math.max(8, window.innerWidth - panelW - 10 - 360) + 'px';
   const r = row.getBoundingClientRect();
   const ph = pop.offsetHeight || 220;
@@ -3359,10 +3522,693 @@ async function pickOneplayProfile(p) {
   log('Oneplay přihlášeno · profil ' + p.name + ' (' + list.length + ' kanálů)');
 }
 
+// ---------- Vodafone TV CZ (Kaltura Cloud TV + Nagra DAS + SSM Widevine) ----------
+const VTV_SSM_LICENSE_URL = 'https://vtv-ssm.local/license';
+let vtvCfg = null, vtvCfgP = null;
+let vtvDasLoaded = false, vtvDasSessionId = null;
+let vtvSession = null; // { ks, expiry, userId, householdId, deviceId, keyId, alg, cdnTokens }
+let vtvReloginP = null;
+let vtvEpgP = null;
+const vtvChanEpgAt = new Map();
+let vtvSsm = null; // { sessionToken, heartbeat, timer, reqBody, assetId, assetType, fileId, programId, licensed }
+let vtvXhrHooked = false;
+
+function vtvResetSession() {
+  vtvSsmStop().catch(() => {});
+  vtvSession = null;
+  vtvDasSessionId = null;
+  vtvChanEpgAt.clear();
+}
+
+function vtvUdid() {
+  try {
+    let id = localStorage.getItem('tvklient.vtvUdid');
+    if (!id) {
+      id = (crypto && crypto.randomUUID) ? crypto.randomUUID() : ('vtv-' + Date.now() + '-' + Math.random().toString(16).slice(2));
+      localStorage.setItem('tvklient.vtvUdid', id);
+    }
+    return id;
+  } catch {
+    return 'vtv-fallback-' + Date.now();
+  }
+}
+
+async function vtvEnsureConfig() {
+  if (vtvCfg) return vtvCfg;
+  if (vtvCfgP) return vtvCfgP;
+  vtvCfgP = (async () => {
+    if (!invoke) throw new Error('Vodafone TV vyžaduje spuštěnou aplikaci (blokuje CORS).');
+    let dmsUrl = 'https://3062.dms-vfp2.ott.kaltura.com/';
+    try {
+      const initXml = await invoke('http_get', { url: 'https://tv.vodafone.cz/init.xml' });
+      const m = /<dms_url>\s*([^<\s]+)\s*<\/dms_url>/i.exec(String(initXml || ''));
+      if (m && m[1]) dmsUrl = m[1].endsWith('/') ? m[1] : (m[1] + '/');
+    } catch {}
+    const qs = new URLSearchParams({
+      username: 'dms',
+      password: 'tvinci',
+      appname: VODAFONE_DMS_APP,
+      cver: VODAFONE_DMS_CVER,
+      udid: vtvUdid(),
+      platform: 'Other',
+      partnerId: '3062',
+    }).toString();
+    let dmsRaw = await invoke('http_get', { url: dmsUrl + 'getconfig?' + qs });
+    let dmsJson = JSON.parse(dmsRaw);
+    if (String(dmsJson?.status || '').toLowerCase() === 'unregistered') {
+      await invoke('http_get', { url: dmsUrl + 'register?' + qs });
+      dmsRaw = await invoke('http_get', { url: dmsUrl + 'getconfig?' + qs });
+      dmsJson = JSON.parse(dmsRaw);
+    }
+    const cfg = parseDmsConfig(dmsJson);
+    const certUrl = cfg.licenseServerUrl.replace(/\/?$/, '/') + cfg.tenantId + '/wvls/contentlicenseservice/v1/certificates';
+    const [publicKeyPem, opVaultText, wvCertB64] = await Promise.all([
+      invoke('http_get', { url: cfg.publicKeyUrl }),
+      invoke('http_get', { url: cfg.opVaultAddress }),
+      invoke('vodafone_get_b64', { url: certUrl }).catch(() => null),
+    ]);
+    cfg.publicKeyPem = publicKeyPem;
+    cfg.opVaultText = opVaultText;
+    cfg.wvCertB64 = wvCertB64;
+    vtvCfg = cfg;
+    return cfg;
+  })().finally(() => { vtvCfgP = null; });
+  return vtvCfgP;
+}
+
+async function vtvEnsureDas() {
+  const cfg = await vtvEnsureConfig();
+  if (!vtvDasLoaded) {
+    if (typeof window.init !== 'function' || typeof window.openSession !== 'function') {
+      const [joseCode, dasCode] = await Promise.all([
+        invoke('http_get', { url: 'https://tv.vodafone.cz/assets/js/das/lib/jose.min.js' }),
+        invoke('http_get', { url: 'https://tv.vodafone.cz/assets/js/das/dasWebSDK.js' }),
+      ]);
+      (0, eval)(joseCode);
+      (0, eval)(dasCode);
+    }
+    vtvDasLoaded = true;
+  }
+  const initR = await window.init(cfg.opVaultText);
+  if (!initR || initR.status !== 'NV_DAS_SUCCESS') {
+    throw new Error('Nagra DAS init selhal: ' + (initR?.message || initR?.status || '?'));
+  }
+  const openR = await window.openSession();
+  if (!openR || openR.status !== 'NV_DAS_SUCCESS' || !openR.data) {
+    throw new Error('Nagra DAS openSession selhal: ' + (openR?.message || openR?.status || '?'));
+  }
+  vtvDasSessionId = openR.data;
+  const chalR = await window.getChallenge(vtvDasSessionId);
+  if (!chalR || chalR.status !== 'NV_DAS_SUCCESS' || !chalR.data) {
+    throw new Error('Nagra DAS challenge selhal: ' + (chalR?.message || chalR?.status || '?'));
+  }
+  return chalR.data;
+}
+
+async function vtvSignBody(bodyStr) {
+  if (!vtvDasSessionId || !vtvSession || !vtvSession.keyId) {
+    throw new Error('Vodafone TV: chybí DAS klíč sezení.');
+  }
+  const bufStr = window.convertStringtoBuffer(bodyStr).data.toString();
+  const sig = await window.sign(vtvDasSessionId, vtvSession.keyId, bufStr);
+  if (!sig || sig.status !== 'NV_DAS_SUCCESS' || !sig.data) {
+    throw new Error('Vodafone TV: podpis požadavku selhal.');
+  }
+  const hex = Array.from(sig.data).map((b) => b.toString(16).padStart(2, '0')).join('');
+  return vtvSession.alg + ':' + hex;
+}
+
+async function vtvBeginLogin(username, password) {
+  const cfg = await vtvEnsureConfig();
+  const challenge = await vtvEnsureDas();
+  const encPass = rsaEncryptPkcs1(cfg.publicKeyPem, password);
+  const url = cfg.vtvApiGw + 'authentication/v2/credentials';
+  const payload = JSON.stringify({
+    username,
+    password: encPass,
+    deviceBrandId: VODAFONE_BRAND_ID,
+  });
+  const res = await invoke('vodafone_post', {
+    url,
+    body: payload,
+    headers: { 'vtv-authentication': 'web:' + challenge },
+  });
+  const parsed = parseVodafoneLoginResponse(res && res.body, res && res.headers, res ? res.status : 0);
+  if (parsed.encryptedSessionRight) {
+    const imp = await window.importLicense(vtvDasSessionId, parsed.encryptedSessionRight);
+    if (!imp || imp.status !== 'NV_DAS_SUCCESS') {
+      throw new Error('Nagra DAS importLicense selhal.');
+    }
+  }
+  vtvSession = {
+    ks: parsed.ks,
+    expiry: parsed.expiry,
+    userId: parsed.userId,
+    householdId: parsed.householdId,
+    deviceId: parsed.deviceId,
+    keyId: parsed.keyId,
+    alg: parsed.alg,
+    cdnTokens: parsed.cdnTokens,
+  };
+  return vtvSession;
+}
+
+function vtvReloginOnce() {
+  if (!vtvReloginP) vtvReloginP = vtvSilentLogin(false).finally(() => { vtvReloginP = null; });
+  return vtvReloginP;
+}
+
+async function vtvEnsureSession() {
+  if (vtvSession && vtvSession.ks && (!vtvSession.expiry || vtvSession.expiry > Date.now() + 5 * 60000)) {
+    return vtvSession;
+  }
+  const ok = await vtvReloginOnce().catch(() => false);
+  if (!ok || !vtvSession) throw new Error('Vodafone TV: sezení vypršelo — přihlas se znovu.');
+  return vtvSession;
+}
+
+async function vtvSignedPost(url, bodyObj, allowRetry = true) {
+  const cfg = await vtvEnsureConfig();
+  const sess = await vtvEnsureSession();
+  // Synchronizovat ks i v podrizenych requests[].body (napr. ccursession/v1/start po reloginu).
+  const fullBody = {
+    ...bodyObj,
+    apiVersion: bodyObj.apiVersion || cfg.apiVersion,
+    ks: sess.ks,
+  };
+  if (Array.isArray(fullBody.requests)) {
+    fullBody.requests = fullBody.requests.map((req) => {
+      if (req && req.body && typeof req.body === 'object' && 'ks' in req.body) {
+        return { ...req, body: { ...req.body, ks: sess.ks } };
+      }
+      return req;
+    });
+  }
+  const bodyStr = JSON.stringify(fullBody);
+  const authSig = await vtvSignBody(bodyStr);
+  const headers = { 'vtv-authorization': authSig };
+  if (sess.deviceId) headers['vtv-id'] = sess.deviceId;
+  const res = await invoke('vodafone_post', { url, body: bodyStr, headers });
+  const body = res && res.body;
+  const errObj = (body && body.result && body.result.error) || (body && body.error) || null;
+  const errCode = String((errObj && errObj.code) || '');
+  const errMsg = String((errObj && errObj.message) || '');
+  // 403 muze byt NotEntitled (nepredplaceny kanal) — neni to vyprsene sezeni!
+  const isAuthErr = res?.status === 401
+    || /^(1011|1016|500016|500015|apigw-10005|apigw-10006|apigw-10007)$/i.test(errCode)
+    || /invalid.*ks|session.*expired/i.test(errMsg);
+  if (isAuthErr && allowRetry) {
+    log('Vodafone TV sezení neplatné (HTTP ' + (res?.status || '?') + ' ' + errCode + '), přihlašuji znovu…', 'WARN', 'VTV');
+    vtvSession = null;
+    const ok = await vtvReloginOnce().catch(() => false);
+    if (ok && vtvSession) return vtvSignedPost(url, bodyObj, false);
+  }
+  if ((res && res.status >= 400) || errObj) {
+    const rawDetail = errMsg || (typeof body === 'string' ? body.slice(0, 180) : JSON.stringify(body || {}).slice(0, 220)) || ('HTTP ' + (res?.status || '?'));
+    const e = new Error(rawDetail + (errCode ? ' [' + errCode + ']' : ''));
+    e.httpStatus = res ? res.status : 0;
+    e.vtvCode = errCode;
+    throw e;
+  }
+  return body;
+}
+
+async function vtvLoadChannels() {
+  const cfg = await vtvEnsureConfig();
+  const entP = vtvSignedPost(cfg.phoenix + 'entitlement/action/list', {
+    filter: {
+      objectType: 'KalturaEntitlementFilter',
+      entitlementTypeEqual: 'subscription',
+      entityReferenceEqual: 'household',
+      isExpiredEqual: false,
+    },
+    pager: { objectType: 'KalturaFilterPager', pageSize: 200, pageIndex: 1 },
+  }).then((d) => {
+    const set = new Set();
+    for (const e of (d?.result?.objects || [])) {
+      if (e && e.entitlementId !== undefined && e.entitlementId !== null) set.add(String(e.entitlementId));
+    }
+    return set;
+  }).catch(() => new Set());
+
+  const entitledP = vtvSignedPost(cfg.phoenix + 'asset/action/list', {
+    filter: {
+      objectType: 'KalturaSearchAssetFilter',
+      typeIn: '735',
+      kSql: "(and entitled_assets='entitled')",
+    },
+    pager: { objectType: 'KalturaFilterPager', pageSize: 500, pageIndex: 1 },
+  }).then((d) => {
+    const set = new Set();
+    for (const o of (d?.result?.objects || [])) {
+      if (o && o.id !== undefined && o.id !== null) set.add(String(o.id));
+    }
+    return set;
+  }).catch(() => new Set());
+
+  const fetchPage = (pageIndex) => vtvSignedPost(cfg.phoenix + 'asset/action/list', {
+    filter: { objectType: 'KalturaSearchAssetFilter', typeIn: '735', orderBy: 'NAME_ASC' },
+    pager: { objectType: 'KalturaFilterPager', pageSize: 500, pageIndex },
+  });
+
+  const [subSet, entitledSet, page1] = await Promise.all([entP, entitledP, fetchPage(1)]);
+  let all = (page1?.result?.objects) || [];
+  const total = Number(page1?.result?.totalCount || all.length);
+  if (total > all.length && all.length > 0) {
+    const page2 = await fetchPage(2).catch(() => null);
+    if (page2?.result?.objects) all = all.concat(page2.result.objects);
+  }
+  const parsed = parseVodafoneChannels(all, subSet.size ? subSet : null, entitledSet.size ? entitledSet : null);
+  log('Vodafone TV: kanály ' + parsed.length + ' (předplacených: ' + (entitledSet.size || '?') + ')', 'INFO', 'VTV');
+  return parsed;
+}
+
+function vtvMergeEpg(grouped) {
+  let n = 0;
+  for (const [cid, rows] of Object.entries(grouped)) {
+    const existing = epgBySrc.vodafone[cid];
+    if (existing && existing.length) {
+      const byId = new Map();
+      for (const r of existing) byId.set(r.id || String(r.s), r);
+      for (const r of rows) byId.set(r.id || String(r.s), r);
+      epgBySrc.vodafone[cid] = [...byId.values()].sort((a, b) => a.s - b.s);
+    } else {
+      epgBySrc.vodafone[cid] = rows;
+    }
+    n++;
+  }
+  return n;
+}
+
+async function vtvLoadEpg() {
+  const cfg = await vtvEnsureConfig();
+  const nowSec = Math.floor(Date.now() / 1000);
+  // Faze 1 (okamzita): 1 rychly dotaz jen na prave bezici porady → zaplni "Prave bezi" pro vsechny stanice hned.
+  try {
+    const liveRes = await vtvSignedPost(cfg.phoenix + 'asset/action/list', {
+      filter: {
+        objectType: 'KalturaSearchAssetFilter',
+        kSql: `(and start_date<='${nowSec}' end_date>'${nowSec}')`,
+        orderBy: 'START_DATE_ASC',
+        typeIn: '0',
+      },
+      pager: { objectType: 'KalturaFilterPager', pageSize: 500, pageIndex: 1 },
+    });
+    const liveObjs = (liveRes && liveRes.result && liveRes.result.objects) || [];
+    if (liveObjs.length) {
+      vtvMergeEpg(parseVodafoneEpgObjects(liveObjs));
+      renderAll();
+    }
+  } catch {}
+
+  // Faze 2 (paralelni): zbytek dne (-2 h .. +24 h) naraz v 6 paralelnich strankach.
+  const t0 = nowSec - 2 * 3600;
+  const t1 = nowSec + 24 * 3600;
+  const kSql = `(and start_date>='${t0}' start_date<'${t1}')`;
+  const pages = await Promise.all([1, 2, 3, 4, 5, 6].map((pageIndex) =>
+    vtvSignedPost(cfg.phoenix + 'asset/action/list', {
+      filter: {
+        objectType: 'KalturaSearchAssetFilter',
+        kSql,
+        orderBy: 'START_DATE_ASC',
+        typeIn: '0',
+      },
+      pager: { objectType: 'KalturaFilterPager', pageSize: 500, pageIndex },
+    }).then((d) => (d && d.result && d.result.objects) || []).catch(() => []),
+  ));
+  const all = pages.flat();
+  const n = vtvMergeEpg(parseVodafoneEpgObjects(all));
+  return n;
+}
+
+const vtvChanEpgPending = new Set();
+async function vtvLoadChannelEpg(st) {
+  if (!st || !st.vfEpgId || !vtvSession) return 0;
+  const cid = String(st.vfEpgId);
+  const last = vtvChanEpgAt.get(cid) || 0;
+  if (Date.now() - last < 15 * 60000 || vtvChanEpgPending.has(cid)) return 0;
+  vtvChanEpgPending.add(cid);
+  try {
+    const cfg = await vtvEnsureConfig();
+    const nowSec = Math.floor(Date.now() / 1000);
+    const t0 = nowSec - 3 * 24 * 3600;
+    const t1 = nowSec + 4 * 24 * 3600;
+    const d = await vtvSignedPost(cfg.phoenix + 'asset/action/list', {
+      filter: {
+        objectType: 'KalturaSearchAssetFilter',
+        kSql: `(and start_date>='${t0}' start_date<'${t1}' epg_channel_id:'${cid}')`,
+        orderBy: 'START_DATE_ASC',
+        typeIn: '0',
+      },
+      pager: { objectType: 'KalturaFilterPager', pageSize: 500, pageIndex: 1 },
+    });
+    const objs = (d && d.result && d.result.objects) || [];
+    const grouped = parseVodafoneEpgObjects(objs);
+    if (grouped[cid] && grouped[cid].length) {
+      epgBySrc.vodafone[cid] = grouped[cid];
+      vtvChanEpgAt.set(cid, Date.now());
+      return grouped[cid].length;
+    }
+    return 0;
+  } finally {
+    vtvChanEpgPending.delete(cid);
+  }
+}
+
+function vtvEpgFresh() {
+  const nowMs = Date.now();
+  let best = 0;
+  for (const k of Object.keys(epgBySrc.vodafone)) {
+    const rows = epgBySrc.vodafone[k];
+    if (rows && rows.length && rows[rows.length - 1].e2 > best) best = rows[rows.length - 1].e2;
+  }
+  return best > nowMs;
+}
+
+function vtvEnsureEpg(force) {
+  if (vtvEpgP) return vtvEpgP;
+  vtvEpgP = (async () => {
+    try {
+      if (!(authMeta.vodafone && authMeta.vodafone.logged)) return 0;
+      if (!force && vtvEpgFresh()) return -1;
+      const n = await vtvLoadEpg();
+      log('Vodafone TV EPG: program pro ' + n + ' stanic');
+      return n;
+    } finally { vtvEpgP = null; }
+  })();
+  return vtvEpgP;
+}
+
+async function vtvPlayUrl(st, opts = {}) {
+  const cfg = await vtvEnsureConfig();
+  const sess = await vtvEnsureSession();
+  const isCatchup = !!opts.epgId;
+  const assetId = isCatchup ? String(opts.epgId) : String(st.vfId);
+  const assetType = isCatchup ? 'epg' : 'media';
+  const context = isCatchup ? 'CATCHUP' : 'PLAYBACK';
+  const reqBody = {
+    assetId,
+    assetType,
+    contextDataParams: {
+      objectType: 'KalturaPlaybackContextOptions',
+      assetFileIds: String(st.vfFileId),
+      context,
+      urlType: 'DIRECT',
+    },
+    apiVersion: cfg.apiVersion,
+    ks: sess.ks,
+  };
+  const postBody = { ...reqBody };
+  if (sess.cdnTokens && sess.cdnTokens.length) postBody.cdnCts = sess.cdnTokens;
+  const d = await vtvSignedPost(cfg.phoenix + 'asset/action/getPlaybackManifest', postBody);
+  const res = (d && d.result) || {};
+  const src = (res.sources && res.sources[0]) || null;
+  if (!src || !src.url) {
+    const m = (res.messages && res.messages[0]) || {};
+    throw new Error(m.message || m.code || 'Vodafone TV nevrátil URL streamu.');
+  }
+  const drmItem = (src.drm && src.drm[0]) || null;
+  // getPlaybackManifest nevraci pole src.drm (na rozdil od getPlaybackContext), protoze vsechny DASH streamy
+  // Vodafone TV CZ pouzivaji Nagra SSM Widevine.
+  const isDash = /\.mpd(\?|$)/i.test(src.url) || /DASH/i.test(String(st.vfFileType || ''));
+  const clearContent = !drmItem && !isDash;
+  let host = '';
+  try { host = new URL(src.url).host; } catch {}
+  log('Vodafone manifest OK: ' + st.name + ' host=' + host + ' drm=' + (clearContent ? 'clear' : (drmItem?.scheme || 'SSM-Widevine')), 'INFO', 'VTV');
+  const curProg = !isCatchup ? liveInfo(st) : null;
+  const progRow = !isCatchup ? (epgRowsFor(st) || []).find((r) => r.s <= Date.now() && r.e2 > Date.now()) : null;
+  return {
+    url: src.url,
+    clearContent,
+    drmToken: (drmItem && drmItem.data) || '',
+    reqBody,
+    assetId,
+    assetType,
+    fileId: String(st.vfFileId),
+    programId: isCatchup ? null : (progRow && progRow.id ? progRow.id : (curProg && curProg.id ? curProg.id : null)),
+  };
+}
+
+function vtvBookmarkOf(ssm, action) {
+  const pos = (ssm.assetType === 'epg' && Number.isFinite(video.currentTime)) ? video.currentTime : 0;
+  return buildVodafoneBookmarkBody({
+    assetId: ssm.assetId,
+    assetType: ssm.assetType,
+    fileId: ssm.fileId,
+    action,
+    position: pos,
+    programId: ssm.programId,
+    apiVersion: vtvCfg ? vtvCfg.apiVersion : '5.3.2',
+    ks: vtvSession ? vtvSession.ks : '',
+  });
+}
+
+const VTV_SSM_STORAGE_KEY = 'tvklient.vtvSsmPending';
+let vtvSsmStopP = null;
+
+function vtvSavePendingSsm(sessionToken, bookmarkBody) {
+  try {
+    if (sessionToken) localStorage.setItem(VTV_SSM_STORAGE_KEY, JSON.stringify({ sessionToken, bookmarkBody }));
+    else localStorage.removeItem(VTV_SSM_STORAGE_KEY);
+  } catch {}
+}
+
+async function vtvTearDownPending() {
+  let saved = null;
+  try {
+    const raw = localStorage.getItem(VTV_SSM_STORAGE_KEY);
+    if (raw) {
+      localStorage.removeItem(VTV_SSM_STORAGE_KEY);
+      saved = JSON.parse(raw);
+    }
+  } catch {}
+  if (!saved || !saved.sessionToken || !vtvCfg || !vtvSession) return;
+  try {
+    const bm = saved.bookmarkBody && typeof saved.bookmarkBody === 'object'
+      ? { ...saved.bookmarkBody, ks: vtvSession.ks }
+      : buildVodafoneBookmarkBody({ assetId: '', assetType: 'media', fileId: 0, action: 'STOP', position: 0, apiVersion: vtvCfg.apiVersion, ks: vtvSession.ks });
+    await vtvSignedPost(vtvCfg.vtvApiGw + 'ccursession/v1/teardown', {
+      requests: [
+        { action: 'bookmark', params: {}, body: bm },
+        { action: 'session', params: { sessionToken: saved.sessionToken }, body: {} },
+      ],
+    }, false);
+    log('Vodafone SSM teardown (uložená relace) OK', 'INFO', 'VTV');
+  } catch (e) {
+    log('Vodafone SSM teardown (uložená relace): ' + (e?.message || e), 'WARN', 'VTV');
+  }
+}
+
+async function vtvSsmStop() {
+  if (vtvSsmStopP) {
+    await vtvSsmStopP.catch(() => {});
+  }
+  const s = vtvSsm;
+  vtvSsm = null;
+  if (!s) return;
+  if (s.timer) { clearInterval(s.timer); s.timer = null; }
+  if (!s.sessionToken || !vtvCfg || !vtvSession) return;
+  const bm = vtvBookmarkOf(s, 'STOP');
+  vtvSavePendingSsm(s.sessionToken, bm);
+  vtvSsmStopP = (async () => {
+    try {
+      await vtvSignedPost(vtvCfg.vtvApiGw + 'ccursession/v1/teardown', {
+        requests: [
+          { action: 'bookmark', params: {}, body: bm },
+          { action: 'session', params: { sessionToken: s.sessionToken }, body: {} },
+        ],
+      }, false);
+      vtvSavePendingSsm(null);
+    } catch (e) {
+      log('Vodafone SSM teardown: ' + (e?.message || e), 'WARN', 'VTV');
+    } finally {
+      vtvSsmStopP = null;
+    }
+  })();
+  await vtvSsmStopP;
+}
+
+function installVtvXhrInterceptor() {
+  if (vtvXhrHooked) return;
+  vtvXhrHooked = true;
+  const origOpen = XMLHttpRequest.prototype.open;
+  const origSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+    this.__vtvUrl = typeof url === 'string' ? url : String(url || '');
+    return origOpen.call(this, method, url, ...rest);
+  };
+  XMLHttpRequest.prototype.send = function (body) {
+    if (this.__vtvUrl && this.__vtvUrl.startsWith(VTV_SSM_LICENSE_URL)) {
+      const xhr = this;
+      const u8 = body instanceof ArrayBuffer
+        ? new Uint8Array(body)
+        : (ArrayBuffer.isView(body) ? new Uint8Array(body.buffer, body.byteOffset, body.byteLength) : new Uint8Array(0));
+      const chalB64 = bytesToB64(u8);
+      vtvHandleLicenseChallenge(chalB64).then((licB64) => {
+        const bin = atob(licB64);
+        const buf = new ArrayBuffer(bin.length);
+        const view = new Uint8Array(buf);
+        for (let i = 0; i < bin.length; i++) view[i] = bin.charCodeAt(i);
+        Object.defineProperty(xhr, 'readyState', { value: 4, configurable: true });
+        Object.defineProperty(xhr, 'status', { value: 200, configurable: true });
+        Object.defineProperty(xhr, 'statusText', { value: 'OK', configurable: true });
+        Object.defineProperty(xhr, 'response', { value: buf, configurable: true });
+        Object.defineProperty(xhr, 'responseURL', { value: xhr.__vtvUrl, configurable: true });
+        xhr.getResponseHeader = (h) => (/content-type/i.test(String(h || '')) ? 'application/octet-stream' : null);
+        xhr.getAllResponseHeaders = () => 'content-type: application/octet-stream\r\n';
+        try { xhr.dispatchEvent(new Event('readystatechange')); } catch {}
+        try { xhr.dispatchEvent(new Event('load')); } catch {}
+        try { xhr.dispatchEvent(new Event('loadend')); } catch {}
+      }).catch((e) => {
+        log('Vodafone Widevine licence selhala: ' + (e?.message || e));
+        Object.defineProperty(xhr, 'readyState', { value: 4, configurable: true });
+        Object.defineProperty(xhr, 'status', { value: 500, configurable: true });
+        Object.defineProperty(xhr, 'statusText', { value: 'Error', configurable: true });
+        Object.defineProperty(xhr, 'response', { value: new ArrayBuffer(0), configurable: true });
+        try { xhr.dispatchEvent(new Event('readystatechange')); } catch {}
+        try { xhr.dispatchEvent(new Event('error')); } catch {}
+        try { xhr.dispatchEvent(new Event('loadend')); } catch {}
+      });
+      return;
+    }
+    return origSend.call(this, body);
+  };
+}
+
+async function vtvPrepareSsmForPlay(st) {
+  installVtvXhrInterceptor();
+  await vtvSsmStop();
+  await vtvTearDownPending();
+  const play = st._vtvPlay;
+  if (!play) throw new Error('Chybí playback kontext pro Vodafone TV.');
+  vtvSsm = {
+    sessionToken: null,
+    heartbeat: 60,
+    timer: null,
+    reqBody: play.reqBody,
+    assetId: play.assetId,
+    assetType: play.assetType,
+    fileId: play.fileId,
+    programId: play.programId,
+    station: st,
+    licensed: false,
+  };
+}
+
+function vtvStartHeartbeat(ssm) {
+  if (ssm.timer) { clearInterval(ssm.timer); ssm.timer = null; }
+  const sec = Math.max(15, Number(ssm.heartbeat) || 60);
+  ssm.timer = setInterval(async () => {
+    if (vtvSsm !== ssm || !ssm.sessionToken) { clearInterval(ssm.timer); ssm.timer = null; return; }
+    try {
+      const bm = vtvBookmarkOf(ssm, paused ? 'PAUSE' : 'HIT');
+      const r = await vtvSignedPost(vtvCfg.vtvApiGw + 'ccursession/v1/renewal', {
+        requests: [
+          { action: 'bookmark', params: {}, body: bm },
+          { action: 'session', params: { sessionToken: ssm.sessionToken }, body: {} },
+          { action: 'license', params: {}, body: {} },
+        ],
+      });
+      if (r && r.sessionToken) {
+        ssm.sessionToken = r.sessionToken;
+        vtvSavePendingSsm(r.sessionToken, vtvBookmarkOf(ssm, 'STOP'));
+      }
+    } catch (e) {
+      log('Vodafone SSM heartbeat: ' + (e?.message || e));
+    }
+  }, sec * 1000);
+}
+
+async function vtvHandleLicenseChallenge(challengeB64) {
+  const ssm = vtvSsm;
+  if (!ssm || !vtvCfg) throw new Error('Vodafone SSM relace není připravena.');
+  log('Vodafone SSM licence request (licensed=' + ssm.licensed + ', chalLen=' + challengeB64.length + ')', 'INFO', 'VTV');
+  const licParams = { drmId: VODAFONE_WIDEVINE_DRM_ID, challenge: challengeB64 };
+  if (!ssm.licensed) {
+    const bm = vtvBookmarkOf(ssm, 'PLAY');
+    let r;
+    try {
+      r = await vtvSignedPost(vtvCfg.vtvApiGw + 'ccursession/v1/start', {
+        requests: [
+          { action: 'checkEntitlement', params: {}, body: ssm.reqBody || {} },
+          { action: 'bookmark', params: {}, body: bm },
+          { action: 'session', params: {}, body: {} },
+          { action: 'license', params: licParams, body: {} },
+        ],
+      });
+    } catch (e) {
+      const m = String(e?.message || e);
+      const code = String(e?.vtvCode || '');
+      log('Vodafone SSM start selhal (HTTP ' + (e?.httpStatus || '?') + ' code=' + code + '): ' + m, 'ERROR', 'VTV');
+      if (e?.httpStatus === 403 || /NotEntitled|3032|ServiceNotAllowed|forbidden/i.test(m + ' ' + code)) {
+        if (ssm.station) {
+          ssm.station.locked = true;
+          ssm.station.noAccess = true;
+          persistCache();
+          renderStations();
+        }
+        toast('Stanice není ve vašem balíčku.', 6000);
+        setTimeout(() => stopStream(), 0);
+      } else if (/ConcurrencyLimitation|MediaConcurrencyLimitation/i.test(m + ' ' + code)) {
+        toast('Překročen limit souběžných streamů Vodafone TV.', 8000);
+        setTimeout(() => stopStream(), 0);
+      }
+      throw e;
+    }
+    if (!r || !r.license) {
+      log('Vodafone SSM start bez licence, klíče: ' + Object.keys(r || {}).join(','), 'ERROR', 'VTV');
+      throw new Error('Vodafone SSM start nevrátil Widevine licenci.');
+    }
+    ssm.licensed = true;
+    if (r.sessionToken) {
+      ssm.sessionToken = r.sessionToken;
+      vtvSavePendingSsm(r.sessionToken, vtvBookmarkOf(ssm, 'STOP'));
+    }
+    if (Number(r.heartBeat || r.heartbeat) > 0) ssm.heartbeat = Number(r.heartBeat || r.heartbeat);
+    vtvStartHeartbeat(ssm);
+    log('Vodafone SSM start OK (licLen=' + r.license.length + ', hb=' + ssm.heartbeat + 's)', 'INFO', 'VTV');
+    return r.license;
+  }
+  const bm = vtvBookmarkOf(ssm, paused ? 'PAUSE' : 'HIT');
+  const r = await vtvSignedPost(vtvCfg.vtvApiGw + 'ccursession/v1/renewal', {
+    requests: [
+      { action: 'bookmark', params: {}, body: bm },
+      { action: 'session', params: { sessionToken: ssm.sessionToken || '' }, body: {} },
+      { action: 'license', params: licParams, body: {} },
+    ],
+  });
+  if (!r || !r.license) throw new Error('Vodafone SSM renewal nevrátil Widevine licenci.');
+  if (r.sessionToken) ssm.sessionToken = r.sessionToken;
+  return r.license;
+}
+
+window.addEventListener('beforeunload', () => { vtvSsmStop().catch(() => {}); });
+
+async function vtvSilentLogin(loadData = true) {
+  const user = await vaultGet('vodafone.username');
+  const pass = await vaultGet('vodafone.password');
+  if (!user || !pass) return false;
+  try {
+    await vtvBeginLogin(user, pass);
+  } catch (e) {
+    log('Vodafone TV silent login: ' + (e?.message || e));
+    return false;
+  }
+  authMeta.vodafone = { logged: true, updatedAt: Date.now() };
+  if (loadData) {
+    try {
+      const list = await vtvLoadChannels();
+      if (list.length) { liveChannels.vodafone = list; log('Vodafone TV: kanály obnoveny (' + list.length + ')'); }
+    } catch (e) { log('Vodafone TV: kanály se nepodařilo obnovit: ' + (e?.message || e)); }
+    vtvEnsureEpg().then((n) => { if (n > 0) renderAll(); }).catch(() => {});
+  }
+  return true;
+}
+
 // ---------- modalni prihlaseni: jmeno+heslo -> (profily) -> zpet ----------
-// SledovaniTV profily nema (jde rovnou), Oneplay ukaze serverove profily.
+// SledovaniTV a Vodafone TV profily nemaji (jdou rovnou), Oneplay ukaze serverove profily.
 let loginFor = null;
-let connecting = { sltv: false, oneplay: false };
+let connecting = { sltv: false, oneplay: false, vodafone: false };
 async function withConnecting(id, fn) {
   connecting[id] = true; renderSources();
   try { return await fn(); }
@@ -3379,10 +4225,16 @@ async function openLoginModal(id) {
   $('#loginTitle').textContent = 'Přihlášení – ' + srcOf(id).name;
   $('#loginCredsText').innerHTML = id === 'sltv'
     ? 'Zadej e-mail a heslo <b>jednou</b>. Aplikace si spáruje zařízení a dál se přihlašuje sama.'
-    : 'Zadej e-mail / O2 ID a heslo <b>jednou</b>. Pak vybereš profil; dál je vše automatické.';
+    : id === 'vodafone'
+      ? 'Zadej jméno a heslo <b>jednou</b>. Údaje se bezpečně uloží do trezoru.'
+      : 'Zadej e-mail / O2 ID a heslo <b>jednou</b>. Pak vybereš profil; dál je vše automatické.';
   document.getElementById('loginErr').classList.remove('on');
   $('#loginPass').value = '';
   loginModal().classList.add('on');
+  if (id === 'vodafone') {
+    const user = await vaultGet('vodafone.username');
+    $('#loginUser').value = user || '';
+  }
   if (id === 'oneplay') {
     const user = await vaultGet('oneplay.username');
     const pass = await vaultGet('oneplay.password');
@@ -3453,6 +4305,7 @@ $('#btnDoLogin').onclick = async () => {
   try {
     await withConnecting(id, async () => {
       if (id === 'sltv') await doSltvLogin(user, pass);
+      else if (id === 'vodafone') await doVodafoneLogin(user, pass);
       else await doOneplayLogin(user, pass);
     });
   } catch (e) {
@@ -3478,6 +4331,25 @@ async function doSltvLogin(user, pass) {
   const st = currentStation();
   if (st) playStation(st, false);
   log('SledováníTV přihlášeno (' + list.length + ' stanic)');
+}
+async function doVodafoneLogin(user, pass) {
+  // Udaje patri do trezoru hned po stisku Prihlasit, pred samotnym loginem.
+  await vaultSet('vodafone.username', user);
+  await vaultSet('vodafone.password', pass);
+  log('přihlašuji Vodafone TV…');
+  await vtvBeginLogin(user, pass);
+  const list = await vtvLoadChannels();
+  liveChannels.vodafone = list;
+  authMeta.vodafone = { logged: true, updatedAt: Date.now() };
+  await storeSet('authMeta', authMeta);
+  try { await vtvEnsureEpg(true); } catch (e) { log('Vodafone TV EPG: ' + (e?.message || e)); }
+  persistCache();
+  closeLoginModal();
+  if (curSrc !== 'vodafone') { curSrc = 'vodafone'; selIdx = 0; }
+  paused = false;
+  renderAll();
+  applySelection(false);
+  log('Vodafone TV přihlášeno (' + list.length + ' kanálů)');
 }
 // Jednorazova migrace: co drive skoncilo v docasnem localStorage fallbacku,
 // presun do opraveneho Rust trezoru a fallback vycisti.
@@ -3507,7 +4379,7 @@ function snapshotState() {
     station: currentStation() ? currentStation().name : null,
     selBySrc: selBySrc && typeof selBySrc === 'object' ? { ...selBySrc } : {},
     paused: paused === true,
-    favBySrc: { sltv: [...(favBySrc.sltv || [])], oneplay: [...(favBySrc.oneplay || [])] },
+    favBySrc: { sltv: [...(favBySrc.sltv || [])], oneplay: [...(favBySrc.oneplay || [])], vodafone: [...(favBySrc.vodafone || [])] },
     srcCollapsed: srcCollapsed === true,
     vol: Math.max(0, Math.min(100, Math.round(appVol))),
     muted: appMuted === true,
@@ -3532,7 +4404,10 @@ function slimChannel(st) {
   if (!st || typeof st !== 'object') return null;
   // Bez volatilnich EPG poli (now/pct/epg) — ta se vzdy prepocitaji z cerstvych dat, stara cache nesmi lhát.
   return {
-    eid: st.eid || null, opId: st.opId || null, name: st.name, ini: st.ini, color: st.color,
+    eid: st.eid || null, opId: st.opId || null,
+    vfId: st.vfId || null, vfEpgId: st.vfEpgId || null, vfFileId: st.vfFileId || null, vfFileType: st.vfFileType || null,
+    timeshift: st.timeshift || 0,
+    name: st.name, ini: st.ini, color: st.color,
     logo: st.logo || null, locked: !!st.locked, noAccess: !!st.noAccess, order: st.order || 0,
   };
 }
@@ -3603,9 +4478,9 @@ async function restore() {
   everPlayed = (await storeGet('everPlayed')) === true;
   persistSoon(); // prepsat pripadne poskozeny soubor cistymi hodnotami
   authMeta = await storeGet('authMeta');
-  if (!authMeta || typeof authMeta !== 'object' || Array.isArray(authMeta)) authMeta = { sltv: null, oneplay: null };
+  if (!authMeta || typeof authMeta !== 'object' || Array.isArray(authMeta)) authMeta = { sltv: null, oneplay: null, vodafone: null };
   else {
-    for (const k of ['sltv', 'oneplay']) {
+    for (const k of ['sltv', 'oneplay', 'vodafone']) {
       if (authMeta[k] !== null && authMeta[k] !== undefined && typeof authMeta[k] !== 'object') authMeta[k] = null;
     }
   }
@@ -3616,17 +4491,22 @@ async function restore() {
   if (Array.isArray(chan.sltv) && chan.sltv.length && chan.sltv[0].eid) liveChannels.sltv = chan.sltv;
   else if (chan.sltv?.length) log('cache bez eid zahozena, nacte se cerstve');
   if (Array.isArray(chan.oneplay) && chan.oneplay.length) liveChannels.oneplay = chan.oneplay;
-  stripVolatileEpgs(liveChannels.sltv); stripVolatileEpgs(liveChannels.oneplay);
+  if (Array.isArray(chan.vodafone) && chan.vodafone.length && chan.vodafone[0].vfId) liveChannels.vodafone = chan.vodafone;
+  stripVolatileEpgs(liveChannels.sltv); stripVolatileEpgs(liveChannels.oneplay); stripVolatileEpgs(liveChannels.vodafone);
   // Stara cache mela Oneplay loga v osekavajicim ctverci 256x256 — prepsat na siroky rozmer.
   for (const s of liveChannels.oneplay) {
     if (s && typeof s.logo === 'string' && s.logo.includes('r256x256n')) s.logo = s.logo.replace('r256x256n', 'r320x196n');
   }
+  for (const s of liveChannels.vodafone) {
+    if (s && typeof s.logo === 'string') s.logo = normalizeKalturaLogoUrl(s.logo);
+  }
   // Oblibene: novy per-source format, jinak migrace ze stareho pole jmen (prejmenovani stanic).
-  favBySrc = { sltv: [], oneplay: [] };
+  favBySrc = { sltv: [], oneplay: [], vodafone: [] };
   const storedFavs = await storeGet('favBySrc');
   const validFavs = storedFavs && typeof storedFavs === 'object' && ['sltv', 'oneplay'].every((s) => Array.isArray(storedFavs[s]) && storedFavs[s].every((x) => typeof x === 'string'));
   if (validFavs) {
-    favBySrc = { sltv: [...storedFavs.sltv], oneplay: [...storedFavs.oneplay] };
+    const vfFavs = Array.isArray(storedFavs.vodafone) ? storedFavs.vodafone.filter((x) => typeof x === 'string') : [];
+    favBySrc = { sltv: [...storedFavs.sltv], oneplay: [...storedFavs.oneplay], vodafone: vfFavs };
     // Jednorazovy uklid stareho formatu po probehle migraci.
     storeGet('favs').then((v) => { if (v !== null && v !== undefined) storeDelete('favs').catch(() => {}); }).catch(() => {});
   }
@@ -3648,7 +4528,7 @@ async function restore() {
   async function maybeAutoplay(src) {
     if (autoplayed || curSrc !== src) return;
     const st = currentStation();
-    if (!st || (!st.streamUrl && !st.opId)) return;
+    if (!st || (!st.streamUrl && !st.opId && !st.vfId)) return;
     // Pauza: nic nepoustet ani nemazat — obraz pripravi finalni boot blok (jinak by zustal sum).
     if (paused) return;
     autoplayed = true;
@@ -3743,6 +4623,23 @@ async function restore() {
     }
     maybeAutoplay('oneplay').catch(() => {});
   }
+  async function bootVodafone() {
+    const hasCreds = !!(await vaultGet('vodafone.username')) && !!(await vaultGet('vodafone.password'));
+    if (!hasCreds) return;
+    const wasVfLogged = !!(authMeta.vodafone && authMeta.vodafone.logged);
+    try {
+      const ok = await withConnecting('vodafone', () => vtvSilentLogin(true));
+      if (ok) {
+        persistCache();
+        log('Vodafone TV: sezení obnoveno (' + liveChannels.vodafone.length + ' kanálů)');
+      } else if (wasVfLogged && !liveChannels.vodafone.length) {
+        log('Vodafone TV se tiše nepřihlásilo — zkus to ručně tlačítkem Přihlásit.');
+      }
+    } catch (e) {
+      log('Vodafone TV boot: ' + (e?.message || e));
+    }
+    maybeAutoplay('vodafone').catch(() => {});
+  }
   selBySrc = await storeGet('selBySrc');
   if (!selBySrc || typeof selBySrc !== 'object') selBySrc = {};
   const wantStation = selBySrc[curSrc] || savedStation;
@@ -3753,7 +4650,7 @@ async function restore() {
   if (currentStation()) selBySrc[curSrc] = currentStation().name;
   bootSelIdx = selIdx; bootSrc = curSrc;
   renderAll(); // rychle ukazat cache, nez se dotahnou cerstva data
-  await Promise.all([bootSltv(), bootOneplay()]);
+  await Promise.all([bootSltv(), bootOneplay(), bootVodafone()]);
   persistCache();
   await storeSet('authMeta', authMeta);
   renderAll();
@@ -3762,25 +4659,31 @@ async function restore() {
     if (lastMX < window.innerWidth - 24) document.body.classList.remove('rightOpen');
     if (lastMX > 24) document.body.classList.remove('leftOpen');
   }
-  // Autoplay: Oneplay URL se dohledava az pri prehrani (applySelection), staci opId.
+  // Autoplay: Oneplay a Vodafone URL se dohledava az pri prehrani (applySelection), staci opId/vfId.
   // Bez rucni zmeny behem bootu (jinak plati volba uzivatele, maybeAutoplay uz hral nebo hraje).
   const st = currentStation();
   const untouched = !autoplayed && selIdx === bootSelIdx && curSrc === bootSrc;
-  if (untouched && st && (st.streamUrl || st.opId) && !paused) applySelection(true); // tiche: watchdog to pri neuspechu zkusi znovu
+  if (untouched && st && (st.streamUrl || st.opId || st.vfId) && !paused) applySelection(true); // tiche: watchdog to pri neuspechu zkusi znovu
   else if (untouched && st?.streamUrl && paused) { video.src = st.streamUrl; video.classList.add('on'); noiseOn = false; syncStageVideo(); renderStage(); }
-  else if (untouched && paused && st && !st.streamUrl && ((st.opId && authMeta.oneplay && authMeta.oneplay.logged) || (st.eid && authMeta.sltv && !authMeta.sltv.manual))) {
-    // Pauza bez URL (cache): dohledat URL a pripravit zmrazeny obraz, nehrat. Oba zdroje stejne.
+  else if (untouched && paused && st && !st.streamUrl && ((st.opId && authMeta.oneplay && authMeta.oneplay.logged) || (st.vfId && authMeta.vodafone && authMeta.vodafone.logged) || (st.eid && authMeta.sltv && !authMeta.sltv.manual))) {
+    // Pauza bez URL (cache): dohledat URL a pripravit zmrazeny obraz, nehrat. Vsechny zdroje stejne.
     video.classList.add('on'); syncStageVideo(); renderStage();
     (async () => {
       const url = await fetchStreamUrl(st);
-      if (url) { video.src = url; video.classList.add('on'); noiseOn = false; syncStageVideo(); renderStage(); log('obraz připraven (pauza)'); }
-      else log('obraz v pauze se nepodařilo připravit');
+      if (url) {
+        if (st.vfId || (st.drm && window.dashjs)) {
+          await playStation(st, true);
+        } else {
+          video.src = url; video.classList.add('on'); noiseOn = false; syncStageVideo(); renderStage();
+        }
+        log('obraz připraven (pauza)');
+      } else log('obraz v pauze se nepodařilo připravit');
     })().catch(() => {});
   }
   
   else if (!autoplayed) { wantPlay = false; renderIdle(); }
 
-  if (!authMeta.sltv && !authMeta.oneplay) {
+  if (!authMeta.sltv && !authMeta.oneplay && !authMeta.vodafone) {
     log('zadne uložené přihlášení — vyber si zdroj a klikni Přihlásit');
   }
 }

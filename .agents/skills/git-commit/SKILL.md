@@ -66,3 +66,7 @@ When writing release notes (GitHub releases, annotated tags, or changelogs), alw
 3. Stage only the intended files and inspect `git diff --staged`.
 4. Verify the commit message is in English and follows the format above.
 5. Commit and confirm a clean working tree with `git status`.
+
+## Post-Commit
+
+- After completing a larger commit or release in a long conversation, briefly remind the user that they can run `/compact` to free up context for the next task.

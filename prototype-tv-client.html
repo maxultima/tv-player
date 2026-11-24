@@ -37,7 +37,7 @@
   body.fakefs #stage { z-index:60; }
   /* ---------- edge zones + handles ---------- */
   /* ---------- right panel ---------- */
-  #panelR { position:fixed; top:0; right:0; bottom:0; width:350px; z-index:50;
+  #panelR { position:fixed; top:0; right:0; bottom:0; width:400px; min-width:400px; z-index:50;
     background:var(--panel); border-left:1px solid var(--line);
     transform:translateX(102%); transition:transform .25s ease; display:flex; flex-direction:column; }
   body.rightOpen #panelR { transform:none; }
@@ -623,7 +623,7 @@
       <div id="loginCard">
         <div id="loginStepCreds">
           <h2 id="loginTitle">Přihlášení (demo)</h2>
-          <p>Zadej jméno a heslo. Po ověření se u Oneplay ukáže výběr profilu.</p>
+          <p id="loginHint">Zadej jméno a heslo.</p>
           <div class="alert" id="loginErr"><span class="ico">!</span><span id="loginErrText"></span></div>
           <div style="display:flex;flex-direction:column;gap:8px;margin:10px 0">
             <input id="loginUser" placeholder="E-mail / login" autocomplete="username">
@@ -818,7 +818,8 @@
 <script>
 const SOURCES = [
   { id:'sltv', name:'SledováníTV', short:'STV', color:'#e11d48', logo:'src/assets/sltv-icon.jpg', chip:'red', loginUrl:'https://sledovat.tv/welcome/login' },
-  { id:'oneplay', name:'Oneplay', short:'OP', color:'#2563eb', logo:'src/assets/oneplay-icon.jpg', chip:'dark', loginUrl:'https://www.oneplay.cz/prihlaseni' }
+  { id:'oneplay', name:'Oneplay', short:'OP', color:'#2563eb', logo:'src/assets/oneplay-icon.jpg', chip:'dark', loginUrl:'https://www.oneplay.cz/prihlaseni' },
+  { id:'vodafone', name:'Vodafone TV', short:'VTV', color:'#e60000', logo:'data:image/svg+xml;utf8,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%20120%20120%27%3E%3Crect%20width=%27120%27%20height=%27120%27%20rx=%2714%27%20fill=%27%23e60000%27/%3E%3Ccircle%20cx=%2760%27%20cy=%2745%27%20r=%2724%27%20fill=%27%23ffffff%27/%3E%3Cpath%20d=%27M62%2028c-9%203-14%2010-14%2019%200%2010%207%2016%2015%2016%208%200%2014-6%2014-14%200-7-5-12-12-12-2%200-4%20.5-5%201.3%201-4.5%204.2-7.8%209-9.2L62%2028z%27%20fill=%27%23e60000%27/%3E%3Ctext%20x=%2760%27%20y=%2797%27%20text-anchor=%27middle%27%20font-family=%27system-ui,Segoe%20UI,sans-serif%27%20font-size=%2714%27%20font-weight=%27700%27%20fill=%27%23ffffff%27%3EVodafone%20TV%3C/text%3E%3C/svg%3E', chip:'red', loginUrl:'https://www.vodafonetv.cz/' }
 ];
 const ST = (name,ini,color,now,pct,epg)=>({name,ini,color,now,pct,epg});
 const DATA = {
@@ -836,6 +837,12 @@ const DATA = {
     ST('Nova Sport 2','NS2','#0d9488','Tenis: finále',50,[['16:00','Magazín'],['18:00','Tenis: finále',1,50],['20:30','Basket']]),
     ST('Nova Cinema','NCI','#a855f7','Komedie: Dovolená',35,[['16:30','Animák: Výlet'],['18:30','Komedie: Dovolená',1,35],['20:30','Akční: Útěk']]),
     ST('Nova Action','NAC','#dc2626','Krimiseriál: Stopa',60,[['17:00','Akční odpoledne'],['19:00','Krimiseriál: Stopa',1,60],['21:00','Horor: Noc']])
+  ],
+  vodafone: [
+    ST('HBO','HBO','#111827','Film: Horizont',52,[['17:15','Dokument: Vesmír'],['19:00','Film: Horizont',1,52],['21:15','Seriál: Stín']]),
+    ST('FilmBox','FBX','#e60000','Thriller: Zlom',38,[['17:30','Drama: Most'],['19:00','Thriller: Zlom',1,38],['20:50','Komedie: Víkend']]),
+    ST('Eurosport 1','EU1','#1d4ed8','Cyklistika: etapa',68,[['16:30','Snooker: čtvrtfinále'],['18:30','Cyklistika: etapa',1,68],['20:30','Atletika: mítink']]),
+    ST('National Geographic','NGC','#eab308','Letecké katastrofy',44,[['17:00','Divoká příroda'],['18:30','Letecké katastrofy',1,44],['20:00','Megastavby']])
   ]
 };
 DATA.sltv.find(s=>s.name==='Óčko').locked='pin';
@@ -857,7 +864,11 @@ const DEMO_DESC = {
   'Komedie: Dovolená': 'Letní komedie o rodinné dovolené, která se zvrtne hned první den.',
   'Krimiseriál: Stopa': 'Detektivní seriál. Tým kriminalistů řeší případ zmizelé svědkyně.',
   'Film: Stanice': 'Večerní film. Osudy lidí na maloměstském nádraží v jednom osudovém týdnu.',
-  'Seriál: Ulice času': 'Seriálová sága dvou rodin napříč desetiletími.'
+  'Seriál: Ulice času': 'Seriálová sága dvou rodin napříč desetiletími.',
+  'Film: Horizont': 'Sci-fi drama o expedici na hranici známé galaxie.',
+  'Thriller: Zlom': 'Napínavý thriller o jednom osudovém rozhodnutí během bouřlivé noci.',
+  'Cyklistika: etapa': 'Přímý přenos horské etapy včetně rozboru v cíli.',
+  'Letecké katastrofy': 'Dokumentární rekonstrukce vyšetřování leteckých nehod.'
 };
 const DEMO_IMG_FILM = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="150"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1e1b4b"/><stop offset="1" stop-color="#7c3aed"/></linearGradient></defs><rect width="320" height="150" fill="url(#g)"/><text x="160" y="85" font-size="52" text-anchor="middle" fill="#ffffff" opacity="0.9">F</text></svg>');
 const DEMO_IMG_SPORT = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="150"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#022c22"/><stop offset="1" stop-color="#059669"/></linearGradient></defs><rect width="320" height="150" fill="url(#g)"/><text x="160" y="85" font-size="52" text-anchor="middle" fill="#ffffff" opacity="0.9">S</text></svg>');
@@ -921,7 +932,7 @@ function progEndMin(st, p) {
   }
   return s + 60;
 }
-const activeRec = { sltv: null, oneplay: null };
+const activeRec = { sltv: null, oneplay: null, vodafone: null };
 let pendingCollisionAction = null;
 function findRecCollisions(src, startMin, endMin, excludeKey) {
   const hits = [];
@@ -1110,7 +1121,7 @@ let curSrc = 'sltv';
 let selIdx = 0;
 let favs = ['ČT1','Nova','ČT sport'];
 let paused = false;
-let logged = { sltv:true, oneplay:true }; /* prototyp startuje prihlaseny (demo) */
+let logged = { sltv:true, oneplay:true, vodafone:true }; /* prototyp startuje prihlaseny (demo) */
 const ch = () => logged[curSrc] ? DATA[curSrc] : [];
 
 const $ = s=>document.querySelector(s);
@@ -1454,17 +1465,21 @@ function showLoginError(msg){
 }
 function openLoginModal(id){ loginFor=id;
   document.getElementById('loginTitle').textContent='Přihlášení – '+SOURCES.find(x=>x.id===id).name+' (demo)';
+  document.getElementById('loginHint').textContent=id==='oneplay'
+    ? 'Zadej jméno a heslo. Po ověření se ukáže výběr profilu.'
+    : 'Zadej jméno a heslo.';
   document.getElementById('loginErr').classList.remove('on');
   showCreds(); loginModal.classList.add('on');
   setTimeout(()=>document.getElementById('loginUser').focus(),50);
 }
 function closeLoginModal(){ loginModal.classList.remove('on'); loginFor=null; }
 function finishDemoLogin(profile){
-  logged[loginFor]=true;
+  const id = loginFor;
+  logged[id]=true;
   if(profile) log('demo profil → '+profile.name);
-  if(curSrc!==loginFor){curSrc=loginFor; selIdx=0;}
+  if(curSrc!==id){curSrc=id; selIdx=0;}
   closeLoginModal(); renderAll();
-  log('demo přihlášeno → '+SOURCES.find(x=>x.id===loginFor).name);
+  log('demo přihlášeno → '+SOURCES.find(x=>x.id===id).name);
 }
 document.getElementById('btnCloseLogin').onclick=closeLoginModal;
 document.getElementById('btnCloseLogin2').onclick=closeLoginModal;
@@ -1476,7 +1491,7 @@ document.getElementById('btnDoLogin').onclick=()=>{
   if(!u||!pw){ showLoginError('Vyplň jméno i heslo (demo: stačí cokoli).'); return; }
   log('demo ověření → '+u);
   if(loginFor==='oneplay') showProfiles();
-  else finishDemoLogin(null); /* SledováníTV profily nemá, jde rovnou */
+  else finishDemoLogin(null); /* SledováníTV a Vodafone TV profily nemají, jdou rovnou */
 };
 const normName=s=>(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'');
 let stationFilter='';
@@ -1647,7 +1662,7 @@ function showEpgPop(row,st){
     list.appendChild(d);
   });
   pop.classList.add('on');
-  const panelW=document.getElementById('panelR').offsetWidth||350;
+  const panelW=document.getElementById('panelR').offsetWidth||400;
   const pw=270, gap=10;
   pop.style.left=Math.max(8, window.innerWidth-panelW-gap-pw)+'px';
   const r=row.getBoundingClientRect();
@@ -1899,7 +1914,7 @@ document.getElementById('wClose').onclick=()=>{
 document.getElementById('btnHelp').onmouseenter=(e)=>{
   const pop=document.getElementById('helpPop');
   pop.classList.add('on');
-  const panelW=document.getElementById('panelR').offsetWidth||350;
+  const panelW=document.getElementById('panelR').offsetWidth||400;
   pop.style.left=Math.max(8, window.innerWidth-panelW-10-520)+'px';
   const r=e.target.getBoundingClientRect();
   const ph=pop.offsetHeight||380;
@@ -1975,7 +1990,7 @@ function renderReminders(){
 /* roztahovani menu mysi za vnitrni okraj */
 (function(){
   const savedR=+localStorage.getItem('protoW_R'), savedL=+localStorage.getItem('protoW_L');
-  if(savedR>0) document.getElementById('panelR').style.width=savedR+'px';
+  if(savedR>0) document.getElementById('panelR').style.width=Math.max(400,savedR)+'px';
   if(savedL>0) document.getElementById('panelL').style.width=savedL+'px';
   [['resR','panelR','R'],['resL','panelL','L']].forEach(([rid,pid,key])=>{
     const h=document.getElementById(rid), p=document.getElementById(pid);
@@ -1983,7 +1998,8 @@ function renderReminders(){
       e.preventDefault(); e.stopPropagation(); h.setPointerCapture(e.pointerId); h.classList.add('drag');
       const move=ev=>{
         const w=pid==='panelR' ? window.innerWidth-ev.clientX : ev.clientX;
-        p.style.width=Math.max(220,Math.min(620,w))+'px';
+        const minW=pid==='panelR' ? 400 : 220;
+        p.style.width=Math.max(minW,Math.min(620,w))+'px';
       };
       const up=()=>{ h.classList.remove('drag');
         h.removeEventListener('pointermove',move); h.removeEventListener('pointerup',up);

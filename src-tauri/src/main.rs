@@ -40,6 +40,7 @@ mod oneplay;
 mod recorder;
 mod state;
 mod vault;
+mod vodafone;
 mod winstate;
 
 /// Jednoduchy HTTP klient bez CORS omezeni (frontend bezi na tauri://).
@@ -47,6 +48,74 @@ mod winstate;
 #[tauri::command]
 fn app_build() -> serde_json::Value {
     serde_json::json!({ "version": env!("CARGO_PKG_VERSION"), "time": env!("BUILD_TIME") })
+}
+
+/// Akcni strukturovany denni log s automatickou retenci 3 dny (`logs/app-YYYY-MM-DD.log`).
+fn utc_ymd_hms() -> (String, String) {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let days = secs.div_euclid(86400);
+    let tod = secs.rem_euclid(86400);
+    let h = tod / 3600;
+    let m = (tod % 3600) / 60;
+    let s = tod % 60;
+    // Civil date from days since 1970-01-01 (Howard Hinnant algorithm).
+    let z = days + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = (yoe as i64) + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
+    let yr = if mo <= 2 { y + 1 } else { y };
+    (
+        format!("{yr:04}-{mo:02}-{d:02}"),
+        format!("{h:02}:{m:02}:{s:02}"),
+    )
+}
+
+#[tauri::command]
+fn app_log(app: tauri::AppHandle, level: Option<String>, tag: Option<String>, msg: String) -> Result<(), String> {
+    use std::io::Write;
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("logs");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let (ymd, hms) = utc_ymd_hms();
+    let path = dir.join(format!("app-{ymd}.log"));
+    let is_new = !path.exists();
+    let lvl = level.unwrap_or_else(|| "INFO".to_string());
+    let tg = tag.unwrap_or_else(|| "APP".to_string());
+    let clean = msg.replace(['\r', '\n'], " ");
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| e.to_string())?;
+    let _ = writeln!(f, "{hms} [{tg}] {lvl} {clean}");
+    // Pri vytvoreni noveho denniho souboru promazat logy starsi nez 3 dny.
+    if is_new {
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            let cutoff = std::time::SystemTime::now()
+                .checked_sub(std::time::Duration::from_secs(3 * 86400));
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.extension().and_then(|e| e.to_str()) == Some("log") {
+                    if let (Some(c), Ok(meta)) = (cutoff, entry.metadata()) {
+                        if let Ok(modified) = meta.modified() {
+                            if modified < c {
+                                let _ = std::fs::remove_file(p);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -182,11 +251,14 @@ fn main() {
             http_get,
             http_get_data_url,
             oneplay::oneplay_call,
+            vodafone::vodafone_post,
+            vodafone::vodafone_get_b64,
             vault::vault_set,
             vault::vault_get,
             vault::vault_clear,
             vault::vault_debug,
             app_build,
+            app_log,
             winstate::win_save,
             winstate::win_apply,
             winstate::win_start_drag,
