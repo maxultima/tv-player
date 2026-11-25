@@ -24,12 +24,13 @@ The design is defined in HTML so parts of the original pages integrate easily.
   - On **timeshift / archive** playback, pause and resume work normally from the exact paused position.
 - **Window controls:** Double-click the video or press `F` to maximize/restore; drag the video area to move the window; press `Esc` to close open panels/dialogs. Top-right buttons provide help (`?`), minimize, maximize, and close.
 - **Volume:** Adjust the slider or click the speaker icon in the right menu to mute/unmute.
-- **Video filters & GPU shaders:** Move your mouse to the **top edge** of the window to open the **Video Filters** popup: pick a built-in preset (*Cinema*, *Sports / Live*, *Night*) or save/load/delete your own custom filter profiles (`💾` / `🗑` with confirmation), fine-tune **Brightness**, **Contrast**, **Saturation**, **Warmth**, **Tonal contrast**, **Halftone**, **Noise (1px)**, and **Vignette**, enable **Auto bright/contrast** or real-time WebGL2 **Sharpening (CAS)** and **Upscaling (GPU shader)** (non-DRM streams), and click the **👁** eye button to toggle all filters on/off for instant before/after comparison. Settings and custom profiles are remembered across restarts.
+- **Video filters & GPU shaders:** Move your mouse to the **top edge** of the window to open the **Video Filters** popup: pick a built-in preset (*Standard - Enhanced*, *Cinema*, *Sports / Live*, *Night*) or save/load/delete your own custom filter profiles (`💾` / `🗑` with confirmation), fine-tune **Brightness**, **Contrast**, **Saturation**, **Warmth**, **Tonal contrast**, **Halftone**, **Noise (1px)**, and **Vignette**, enable **Auto bright/contrast** or real-time WebGL2 **Sharpening (CAS)** and **Upscaling (GPU shader)** (non-DRM streams), and click the **👁** eye button to toggle all filters on/off for instant before/after comparison. Settings, active profile selection, and custom profiles are remembered across restarts.
 
 ### EPG (Program Guide), Search & Timeshift
-- **Left panel:** Move your mouse to the **left edge** to view the ~4-day program guide for the current station.
+- **Left panel:** Move your mouse to the **left edge** to view the ~4-day program guide for the current station (EPG data for all signed-in sources loads and refreshes in parallel).
   - Hovering a program shows a floating detail card (description, time range, cover image).
-  - Use the **filter box** at the top to search programs; typing 2+ characters also displays matching programs from **other channels** below, grouped by station logo and name.
+  - Use the **filter box** at the top to search programs; below it, toggle **Search other channels** (enabled by default, remembered across restarts) and **Search other sources** (groups matches from other signed-in sources under each source's logo) when typing 2+ characters.
+  - Click the **🔔** button next to the filter box to save an **EPG Watch** (with a confirmation dialog to review/adjust search scope). Saved watches appear below the filter options and automatically scan refreshed EPG data; when a matching upcoming or live program appears, a persistent notification card shows its preview and details with actions (**Show in EPG**, **Switch to show**, **Schedule download**, **Remind tomorrow**, **Wait for next**, **Delete**).
   - Clicking a **past program** (where archive is supported) starts playing it from the beginning.
 - **Bottom info bar:** Move your mouse to the **bottom edge** to see the current program details, live clock, and timeshift controls:
   - **Play program from start (`⏮`)** — restart the current program from the beginning.
@@ -38,7 +39,7 @@ The design is defined in HTML so parts of the original pages integrate easily.
 
 ### Reminders & Auto-Replanning
 - Click the **⏰** icon on any upcoming program (in the left EPG or the station hover popup) to schedule a reminder. At start time, the app automatically switches to that station (even across sources).
-- Scheduled items appear in the right menu under favorites. Click **📌** to pin a recurring show — after it airs, the app automatically reschedules the next occurrence on the same channel.
+- Scheduled items appear in the right menu under favorites. Click **📌** to pin a recurring show — after it airs, the app automatically reschedules the next occurrence on the same channel (preserving `⏺` / `⬇` flags and retrying automatically if EPG or network data is temporarily unavailable).
 
 ### Recording & Archive Downloads
 - **Settings:** Expand the recording settings in the right menu to configure:
@@ -46,7 +47,7 @@ The design is defined in HTML so parts of the original pages integrate easily.
 - **Live / Scheduled recording (`⏺`):** Records a running or upcoming non-DRM program in real time. While a live recording is active on a source, you can hide the video stream (muted background recording) or stop it early via the confirmation dialog (save or discard).
 - **Archive download (`⬇`):** Available on past, running, and upcoming archive-enabled programs.
   - Past programs start downloading immediately in the background at full network speed without interrupting what you are watching; multiple archive downloads queue up automatically one after another.
-  - Running or upcoming programs marked with `⬇` start downloading automatically once the broadcast ends (including your configured post-padding minutes).
+  - Running or upcoming programs marked with `⬇` start downloading automatically once the broadcast ends (including your configured post-padding minutes), surviving app restarts and retrying automatically if the stream is temporarily unavailable.
   - Active downloads and MP4 conversions appear in the right menu with live size, percentage, and estimated remaining time (automatically resuming after brief network outages or PC sleep).
 
 ## Architecture (decided)

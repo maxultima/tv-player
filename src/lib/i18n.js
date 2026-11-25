@@ -16,6 +16,29 @@ const DICT = {
     recPrev: 'Preview: ',
     stationFilter: 'Search station…',
     epgFilter: 'Search program…',
+    epgSearchOtherCh: 'Search other channels',
+    epgSearchOtherSrc: 'Search other sources',
+    epgWatchBtnTitle: 'Save search and notify when a matching program appears in EPG',
+    epgWatchModalTitle: '🔔 Save EPG Watch',
+    epgWatchModalSub: 'When a matching program appears in the guide, a notification will be shown.',
+    epgWatchSave: 'Save watch',
+    epgWatchQueryLbl: 'Search query:',
+    epgWatchScopeLbl: 'Scan scope:',
+    epgWatchScopeAll: 'all channels · all sources',
+    epgWatchScopeSrc: 'all channels ({src})',
+    epgWatchScopeStOtherSrc: '{st} + other sources',
+    epgWatchScopeStOnly: '{st} only ({src})',
+    epgWatchRowTip: 'Click to show current matches in EPG',
+    epgWatchDelTip: 'Delete watch',
+    epgNotifTag: '🔔 Watched program found in EPG',
+    epgNotifFilter: 'filter “{q}”',
+    epgNotifOpen: 'Show in EPG',
+    epgNotifSwitch: '⏰ Switch to show',
+    epgNotifSaveDl: '⬇ Schedule download',
+    epgNotifSnooze: '🕒 Remind tomorrow',
+    epgNotifWaitNext: '⏭ Wait for next',
+    epgNotifDelete: '🗑 Delete',
+    epgNotifDlUnavail: 'Archive download is not available for this channel',
     clearText: 'Clear text',
     login: 'Sign in',
     logout: 'Sign out',
@@ -26,6 +49,7 @@ const DICT = {
     // Top filters panel
     fltTitle: '✨ Video Filters',
     presetDefault: 'Default',
+    presetStandardEnhanced: 'Standard - Enhanced',
     presetCinema: 'Cinema',
     presetVivid: 'Sports / Live',
     presetNight: 'Night',
@@ -148,6 +172,29 @@ const DICT = {
     recPrev: 'Náhled: ',
     stationFilter: 'Hledat stanici…',
     epgFilter: 'Hledat pořad…',
+    epgSearchOtherCh: 'Prohledávat ostatní kanály',
+    epgSearchOtherSrc: 'Prohledávat i ostatní zdroje',
+    epgWatchBtnTitle: 'Uložit vyhledávání a upozornit, až se pořad objeví v EPG',
+    epgWatchModalTitle: '🔔 Uložit hlídání v EPG',
+    epgWatchModalSub: 'Jakmile se v programu objeví odpovídající pořad, aplikace zobrazí upozornění.',
+    epgWatchSave: 'Uložit hlídání',
+    epgWatchQueryLbl: 'Hledaný výraz:',
+    epgWatchScopeLbl: 'Rozsah skenování:',
+    epgWatchScopeAll: 'všechny kanály · všechny zdroje',
+    epgWatchScopeSrc: 'všechny kanály ({src})',
+    epgWatchScopeStOtherSrc: '{st} + ostatní zdroje',
+    epgWatchScopeStOnly: 'jen {st} ({src})',
+    epgWatchRowTip: 'Kliknutím zobrazíš aktuální shody v EPG',
+    epgWatchDelTip: 'Smazat hlídání',
+    epgNotifTag: '🔔 Nalezen hlídaný pořad v EPG',
+    epgNotifFilter: 'filtr „{q}“',
+    epgNotifOpen: 'Zobrazit v EPG',
+    epgNotifSwitch: '⏰ Přepnout na pořad',
+    epgNotifSaveDl: '⬇ Naplánovat uložení',
+    epgNotifSnooze: '🕒 Připomenout zítra',
+    epgNotifWaitNext: '⏭ Počkat na další',
+    epgNotifDelete: '🗑 Odstranit',
+    epgNotifDlUnavail: 'Uložení z archivu není u této stanice podporováno',
     clearText: 'Smazat text',
     login: 'Přihlásit',
     logout: 'Odhlásit',
@@ -157,6 +204,7 @@ const DICT = {
     stationsCount: '{n} stanic',
     fltTitle: '✨ Obrazové filtry',
     presetDefault: 'Výchozí',
+    presetStandardEnhanced: 'Standard - vylepšeno',
     presetCinema: 'Kino',
     presetVivid: 'Sport / Živé',
     presetNight: 'Noční',
@@ -315,6 +363,15 @@ export function applyI18n() {
   setTitle('#stationFilterClear', 'clearText');
   setPh('#epgFilter', 'epgFilter');
   setTitle('#epgFilterClear', 'clearText');
+  setTitle('#btnEpgWatch', 'epgWatchBtnTitle');
+  setText('#epgOptOtherChLbl', 'epgSearchOtherCh');
+  setText('#epgOptOtherSrcLbl', 'epgSearchOtherSrc');
+  setText('#wmTitle', 'epgWatchModalTitle');
+  setText('#wmSub', 'epgWatchModalSub');
+  setText('#wmOtherChLbl', 'epgSearchOtherCh');
+  setText('#wmOtherSrcLbl', 'epgSearchOtherSrc');
+  setText('#btnWmCancel', 'btnCancel');
+  setText('#btnWmSave', 'epgWatchSave');
 
   // Top video filters panel
   setText('#panelT .ptTitle', 'fltTitle');

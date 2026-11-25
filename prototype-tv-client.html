@@ -273,14 +273,88 @@
     font-size:15px; line-height:1; cursor:pointer; display:none; padding:0; }
   #stationFilterClear:hover { background:#e11d48; color:#fff; }
   #stationFilterClear.on { display:block; }
-  #epgFilterWrap { padding:6px 14px; position:relative; }
+  #epgFilterWrap { padding:6px 14px; display:flex; align-items:center; gap:6px; }
+  .epgInputBox { position:relative; flex:1; min-width:0; }
   #epgFilterDemo { width:100%; background:#0b0e14; color:var(--text); border:1px solid var(--line);
     border-radius:10px; padding:8px 30px 8px 10px; font-size:13px; font-family:inherit; }
-  #epgFilterDemoClear { position:absolute; right:20px; top:50%; transform:translateY(-50%);
+  #epgFilterDemoClear { position:absolute; right:6px; top:50%; transform:translateY(-50%);
     width:22px; height:22px; border:none; border-radius:50%; background:transparent; color:var(--dim);
     font-size:15px; line-height:1; cursor:pointer; display:none; padding:0; }
   #epgFilterDemoClear:hover { background:#e11d48; color:#fff; }
   #epgFilterDemoClear.on { display:block; }
+  .epgWatchBtn { flex:none; width:34px; height:34px; border-radius:10px; border:1px solid var(--line);
+    background:#1b2234; color:var(--text); font-size:15px; cursor:pointer; display:inline-flex;
+    align-items:center; justify-content:center; transition:background .15s, border-color .15s, opacity .15s; }
+  .epgWatchBtn:hover:not(:disabled) { background:var(--acc); border-color:var(--acc); color:#fff; }
+  .epgWatchBtn:disabled { opacity:.35; cursor:not-allowed; }
+  #epgFilterOpts { display:flex; flex-direction:column; gap:5px; padding:2px 14px 8px; border-bottom:1px solid var(--line); }
+  #epgWatchList { display:none; padding:8px 14px; border-bottom:1px solid var(--line); background:rgba(11,14,20,.45); }
+  #epgWatchList.on { display:block; }
+  .epgWatchHead { font-size:10px; font-weight:700; letter-spacing:.8px; text-transform:uppercase; color:var(--dim); margin-bottom:6px; display:flex; align-items:center; justify-content:space-between; }
+  .epgWatchRow { display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:8px; background:#141926; border:1px solid var(--line); margin-bottom:5px; cursor:pointer; transition:border-color .15s, background .15s; }
+  .epgWatchRow:last-child { margin-bottom:0; }
+  .epgWatchRow:hover { border-color:var(--acc); background:#1b2234; }
+  .epgWatchRow .wi { font-size:13px; flex:none; }
+  .epgWatchRow .wt { flex:1; min-width:0; font-size:12px; font-weight:600; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .epgWatchRow .wt small { display:block; font-size:10px; font-weight:400; color:var(--dim); }
+  .epgWatchRow .wx { flex:none; width:20px; height:20px; border:none; border-radius:50%; background:transparent; color:var(--dim); font-size:14px; line-height:1; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; }
+  .epgWatchRow .wx:hover { background:var(--acc); color:#fff; }
+  /* ---------- EPG watch match notification banner ---------- */
+  #epgNotifyStack { position:fixed; top:18px; left:50%; transform:translateX(-50%); z-index:45;
+    display:flex; flex-direction:column; gap:10px; width:min(640px, 94vw); max-height:calc(100vh - 36px);
+    overflow-y:auto; padding:2px 4px 8px; pointer-events:none; scrollbar-width:thin; scrollbar-color:#3b4763 transparent; }
+  .epgNotif { pointer-events:auto; background:rgba(20,25,38,.97); backdrop-filter:blur(12px);
+    border:1px solid var(--acc); border-radius:14px; padding:14px 16px; box-shadow:0 18px 46px #000c;
+    display:flex; flex-direction:column; gap:10px; animation:notifIn .22s ease; }
+  @keyframes notifIn { from { opacity:0; transform:translateY(-10px); } to { opacity:1; transform:none; } }
+  .epgNotifTop { display:flex; align-items:center; gap:8px; }
+  .epgNotifTag { font-size:11px; font-weight:700; color:#fb7185; letter-spacing:.3px; flex:1; }
+  .epgNotifClose { background:transparent; border:none; color:var(--dim); font-size:16px; cursor:pointer; padding:0 4px; line-height:1; }
+  .epgNotifClose:hover { color:#fff; }
+  .epgNotifBody { display:flex; align-items:flex-start; gap:14px; }
+  .epgNotifThumb { width:148px; height:92px; border-radius:10px; object-fit:cover; flex:none; background:#0b0e14; border:1px solid var(--line); }
+  .epgNotifLogo { height:20px; max-width:68px; object-fit:contain; border-radius:4px; flex:none; }
+  .epgNotifInfo { flex:1; min-width:0; display:flex; flex-direction:column; gap:4px; }
+  .epgNotifSrcRow { display:flex; align-items:center; gap:7px; flex-wrap:wrap; font-size:12px; color:#cbd5e1; }
+  .epgNotifTitle { font-size:15px; font-weight:700; color:#fff; line-height:1.25; }
+  .epgNotifDesc { font-size:12px; color:#94a3b8; line-height:1.45; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+  .epgNotifActions { display:flex; flex-direction:column; gap:6px; padding-top:8px; border-top:1px solid var(--line); }
+  .epgNotifGrp { display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; }
+  .epgNotifGrp.secondary { padding-top:6px; border-top:1px dashed rgba(148,163,184,.2); }
+  .epgNotifActions .btn { padding:7px 8px; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center; }
+  .epgNotifActions .btn:disabled { opacity:.35; cursor:not-allowed; pointer-events:auto; }
+  .epgNotifActions .btn:disabled:hover { background:#0b0e14; border-color:var(--line); color:var(--text); }
+  .epgNotifActions .btn.danger { border-color:#e11d4866; color:#fda4af; }
+  .epgNotifActions .btn.danger:hover:not(:disabled) { background:#e11d48; border-color:#e11d48; color:#fff; }
+  .epgNotifBtns { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; padding-top:6px; border-top:1px solid var(--line); }
+  .epgNotifBtns .btn { padding:6px 10px; font-size:12px; }
+  /* ---------- prototype-only debug floating panel (always open) ---------- */
+  #debugPanel { position:fixed; left:14px; bottom:14px; z-index:121; width:min(340px, 92vw);
+    background:rgba(20,25,38,.97); backdrop-filter:blur(12px); border:1px solid var(--line);
+    border-radius:14px; padding:14px; box-shadow:0 20px 50px #000c; display:flex; flex-direction:column; gap:8px; }
+  .dbgHead { display:flex; align-items:center; justify-content:space-between; padding-bottom:6px; border-bottom:1px solid var(--line); }
+  .dbgHead h3 { font-size:13px; font-weight:700; color:#fff; margin:0; display:flex; align-items:center; gap:6px; }
+  .dbgHead span { font-size:10px; color:var(--dim); background:#0b0e14; border:1px solid var(--line); border-radius:99px; padding:2px 7px; }
+  .dbgBtn { width:100%; text-align:left; padding:8px 10px; border-radius:9px; border:1px solid var(--line);
+    background:#0b0e14; color:var(--text); font-size:12px; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:8px;
+    transition:border-color .15s, background .15s; font-family:inherit; }
+  .dbgBtn:hover { border-color:var(--acc); background:#1b2234; }
+  .dbgBtn.active { border-color:var(--acc); background:rgba(225,29,72,.16); color:#fff; }
+  .dbgBtn small { font-size:10px; color:var(--dim); flex:none; }
+  .epgOpt { display:flex; align-items:center; gap:7px; font-size:12px; color:var(--dim); cursor:pointer; user-select:none; }
+  .epgOpt:hover { color:var(--text); }
+  .epgOpt input[type="checkbox"] { accent-color:var(--acc); width:14px; height:14px; margin:0; cursor:pointer; }
+  .epOtherHead { display:flex; align-items:center; gap:10px; padding:8px 8px 4px; margin:16px 0 2px;
+    border-top:1px solid var(--line); font-size:13px; font-weight:700; color:var(--text); }
+  .epOtherIni { width:56px; height:36px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center;
+    font-size:13px; font-weight:800; color:#fff; flex:none; }
+  .epSrcGroup { margin-top:28px; }
+  .epSrcGroup:first-child { margin-top:4px; }
+  .epSrcHead { display:flex; align-items:center; gap:8px; height:34px; box-sizing:border-box; padding:6px 8px;
+    position:sticky; top:0; z-index:3; background:var(--panel); border-bottom:1px solid var(--line);
+    font-size:12px; font-weight:700; color:var(--dim); text-transform:uppercase; letter-spacing:.5px; }
+  .epSrcHead + .epOtherHead { border-top:none; margin-top:6px; }
+  .epSrcLogo { height:20px; max-width:96px; object-fit:contain; flex:none; }
   #stationList { flex:1; overflow-y:auto; padding:2px 8px 12px; scrollbar-width:thin; scrollbar-color:#3b4763 transparent; }
   #stationList::-webkit-scrollbar, #epg::-webkit-scrollbar, #favs::-webkit-scrollbar { width:8px; height:8px; }
   #stationList::-webkit-scrollbar-track, #epg::-webkit-scrollbar-track, #favs::-webkit-scrollbar-track { background:transparent; }
@@ -684,7 +758,15 @@
     <div class="resizer" id="resL" title="roztáhni myšítkem"></div>
     <div id="epgHead">Program</div>
     <div id="epgSub"></div>
-    <div id="epgFilterWrap"><input id="epgFilterDemo" placeholder="Hledat pořad…" autocomplete="off"><button id="epgFilterDemoClear" title="Smazat text">×</button></div>
+    <div id="epgFilterWrap">
+      <div class="epgInputBox"><input id="epgFilterDemo" placeholder="Hledat pořad…" autocomplete="off"><button id="epgFilterDemoClear" title="Smazat text">×</button></div>
+      <button id="btnEpgWatch" class="epgWatchBtn" title="Uložit vyhledávání a upozornit, až se pořad objeví v EPG" disabled>🔔</button>
+    </div>
+    <div id="epgFilterOpts">
+      <label class="epgOpt"><input type="checkbox" id="epgOptOtherCh" checked><span>Prohledávat ostatní kanály</span></label>
+      <label class="epgOpt"><input type="checkbox" id="epgOptOtherSrc"><span>Prohledávat i ostatní zdroje</span></label>
+    </div>
+    <div id="epgWatchList"></div>
     <div id="epg"></div>
   </aside>
 
@@ -812,6 +894,42 @@
         <button class="btn primary" id="btnRecStopConfirm">Zastavit a uložit</button>
       </div>
     </div>
+  </div>
+
+  <!-- EPG WATCH CONFIRMATION MODAL -->
+  <div class="protoModal" id="epgWatchModal">
+    <div class="protoModalCard">
+      <h2>🔔 Uložit hlídání v EPG</h2>
+      <p>Jakmile se v programu objeví odpovídající pořad, aplikace zobrazí upozornění.</p>
+      <div class="mBox" id="wmSummary"></div>
+      <div style="display:flex;flex-direction:column;gap:8px;padding:4px 2px;">
+        <label class="epgOpt"><input type="checkbox" id="wmOtherCh"><span>Prohledávat ostatní kanály</span></label>
+        <label class="epgOpt"><input type="checkbox" id="wmOtherSrc"><span>Prohledávat i ostatní zdroje</span></label>
+      </div>
+      <div class="mRow">
+        <button class="btn" id="btnWmCancel">Zrušit</button>
+        <button class="btn primary" id="btnWmSave">Uložit hlídání</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- EPG MATCH NOTIFICATION STACK -->
+  <div id="epgNotifyStack"></div>
+
+  <!-- PROTOTYPE-ONLY DEBUG PANEL -->
+  <div id="debugPanel">
+    <div class="dbgHead">
+      <h3>🐞 Simulátor stavů</h3>
+      <span>jen prototyp</span>
+    </div>
+    <button class="dbgBtn" id="dbgSimWatch"><span>🔔 Nález hlídaného pořadu v EPG</span><small>notifikace</small></button>
+    <button class="dbgBtn" id="dbgSimWatchMulti"><span>🔔 Nález více pořadů najednou (3×)</span><small>zásobník</small></button>
+    <button class="dbgBtn" id="dbgSimOffline"><span>📡 Nedostupnost sítě (Offline)</span><small id="dbgOffState">vypnuto</small></button>
+    <button class="dbgBtn" id="dbgSimReminder"><span>⏰ Spuštění připomínky pořadu</span><small>přepnutí</small></button>
+    <button class="dbgBtn" id="dbgSimCollision"><span>⚠ Kolize plánování nahrávání</span><small>dialog</small></button>
+    <button class="dbgBtn" id="dbgSimArchiveDl"><span>⬇ Stažení pořadu z archivu</span><small>fronta</small></button>
+    <button class="dbgBtn" id="dbgSimPinFail"><span>📌 Selhání přeplánování seriálu</span><small>chyba</small></button>
+    <button class="dbgBtn" id="dbgSimSessionExp"><span>🔑 Expirace přihlášení zdroje</span><small>upozornění</small></button>
   </div>
 
 
@@ -1298,7 +1416,182 @@ function updateBottomClock(){
 updateBottomClock();
 setInterval(() => { if(!document.hidden) updateBottomClock(); }, 1000);
 let epgFilterDemo='';
-function syncEpgFilterDemoClear(){ document.getElementById('epgFilterDemoClear').classList.toggle('on', !!document.getElementById('epgFilterDemo').value); }
+let epgSearchOtherChDemo = localStorage.getItem('tv_demo_epg_other_ch') !== '0';
+let epgSearchOtherSrcDemo = localStorage.getItem('tv_demo_epg_other_src') === '1';
+(function initEpgFilterOptsDemo(){
+  const c1 = document.getElementById('epgOptOtherCh');
+  const c2 = document.getElementById('epgOptOtherSrc');
+  if (c1) { c1.checked = epgSearchOtherChDemo; c1.onchange = () => { epgSearchOtherChDemo = !!c1.checked; localStorage.setItem('tv_demo_epg_other_ch', epgSearchOtherChDemo ? '1' : '0'); renderEpg(DATA[curSrc][selIdx]); }; }
+  if (c2) { c2.checked = epgSearchOtherSrcDemo; c2.onchange = () => { epgSearchOtherSrcDemo = !!c2.checked; localStorage.setItem('tv_demo_epg_other_src', epgSearchOtherSrcDemo ? '1' : '0'); renderEpg(DATA[curSrc][selIdx]); }; }
+})();
+function syncEpgFilterDemoClear(){
+  const val = (document.getElementById('epgFilterDemo')?.value || '');
+  document.getElementById('epgFilterDemoClear').classList.toggle('on', !!val);
+  const wb = document.getElementById('btnEpgWatch');
+  if (wb) wb.disabled = normName(val).length < 2;
+}
+/* ---------- Ulozena hlidani v EPG (scan plany) ---------- */
+const EPG_WATCH_KEY = 'tv_demo_epg_watches';
+let epgWatchesDemo = (() => {
+  try {
+    const raw = localStorage.getItem(EPG_WATCH_KEY);
+    if (raw !== null) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return [{ id: 'demo-1', q: 'Zprávy', station: 'ČT1', src: 'sltv', otherCh: true, otherSrc: true }];
+})();
+function saveEpgWatchesDemo() {
+  try { localStorage.setItem(EPG_WATCH_KEY, JSON.stringify(epgWatchesDemo)); } catch {}
+}
+function describeWatchScope(w) {
+  const srcName = (SOURCES.find(s => s.id === w.src) || {}).name || w.src;
+  if (w.otherCh && w.otherSrc) return 'všechny kanály · všechny zdroje';
+  if (w.otherCh) return 'všechny kanály (' + srcName + ')';
+  if (w.otherSrc) return w.station + ' + ostatní zdroje';
+  return 'jen ' + w.station + ' (' + srcName + ')';
+}
+function renderEpgWatchesDemo() {
+  const box = document.getElementById('epgWatchList');
+  if (!box) return;
+  box.classList.toggle('on', epgWatchesDemo.length > 0);
+  box.innerHTML = '';
+  if (!epgWatchesDemo.length) return;
+  epgWatchesDemo.forEach((w) => {
+    const row = document.createElement('div');
+    row.className = 'epgWatchRow';
+    row.title = 'Kliknutím zobrazíš aktuální shody v EPG';
+    row.innerHTML = '<span class="wi">🔔</span><span class="wt">' + w.q + '<small>' + describeWatchScope(w) + '</small></span><button class="wx" title="Smazat hlídání">×</button>';
+    row.onclick = () => {
+      const fi = document.getElementById('epgFilterDemo');
+      if (fi) fi.value = w.q;
+      epgFilterDemo = w.q;
+      epgSearchOtherChDemo = !!w.otherCh;
+      epgSearchOtherSrcDemo = !!w.otherSrc;
+      const c1 = document.getElementById('epgOptOtherCh'), c2 = document.getElementById('epgOptOtherSrc');
+      if (c1) c1.checked = epgSearchOtherChDemo;
+      if (c2) c2.checked = epgSearchOtherSrcDemo;
+      syncEpgFilterDemoClear();
+      renderEpg(DATA[curSrc][selIdx]);
+    };
+    row.querySelector('.wx').onclick = (ev) => {
+      ev.stopPropagation();
+      epgWatchesDemo = epgWatchesDemo.filter((x) => x.id !== w.id);
+      saveEpgWatchesDemo();
+      renderEpgWatchesDemo();
+      log('🔔 hlídání v EPG smazáno: „' + w.q + '“');
+    };
+    box.appendChild(row);
+  });
+}
+let pendingWatchDraft = null;
+function updateWatchModalSummary() {
+  if (!pendingWatchDraft) return;
+  const oCh = !!document.getElementById('wmOtherCh').checked;
+  const oSrc = !!document.getElementById('wmOtherSrc').checked;
+  const draft = { ...pendingWatchDraft, otherCh: oCh, otherSrc: oSrc };
+  document.getElementById('wmSummary').innerHTML =
+    '<div><b>Hledaný výraz:</b> „' + draft.q + '“</div>' +
+    '<div style="margin-top:4px;color:#cbd5e1"><b>Rozsah skenování:</b> ' + describeWatchScope(draft) + '</div>';
+}
+function openEpgWatchModal() {
+  const q = (document.getElementById('epgFilterDemo')?.value || '').trim();
+  if (normName(q).length < 2) return;
+  const st = DATA[curSrc][selIdx];
+  pendingWatchDraft = { q, station: st ? st.name : '', src: curSrc };
+  document.getElementById('wmOtherCh').checked = epgSearchOtherChDemo;
+  document.getElementById('wmOtherSrc').checked = epgSearchOtherSrcDemo;
+  updateWatchModalSummary();
+  document.getElementById('epgWatchModal').classList.add('on');
+}
+function closeEpgWatchModal() {
+  document.getElementById('epgWatchModal').classList.remove('on');
+  pendingWatchDraft = null;
+}
+document.getElementById('btnEpgWatch').onclick = openEpgWatchModal;
+document.getElementById('wmOtherCh').onchange = updateWatchModalSummary;
+document.getElementById('wmOtherSrc').onchange = updateWatchModalSummary;
+document.getElementById('btnWmCancel').onclick = closeEpgWatchModal;
+document.getElementById('btnWmSave').onclick = () => {
+  if (!pendingWatchDraft) return;
+  const w = {
+    id: 'w-' + Date.now(),
+    q: pendingWatchDraft.q,
+    station: pendingWatchDraft.station,
+    src: pendingWatchDraft.src,
+    otherCh: !!document.getElementById('wmOtherCh').checked,
+    otherSrc: !!document.getElementById('wmOtherSrc').checked,
+  };
+  epgWatchesDemo.push(w);
+  saveEpgWatchesDemo();
+  renderEpgWatchesDemo();
+  closeEpgWatchModal();
+  const fi = document.getElementById('epgFilterDemo');
+  if (fi) fi.value = '';
+  epgFilterDemo = '';
+  syncEpgFilterDemoClear();
+  renderEpg(DATA[curSrc][selIdx]);
+  log('🔔 uloženo hlídání v EPG: „' + w.q + '“ (' + describeWatchScope(w) + ')');
+};
+function showEpgWatchNotification(opts) {
+  const stack = document.getElementById('epgNotifyStack');
+  if (!stack) return;
+  const card = document.createElement('div');
+  card.className = 'epgNotif';
+  const srcDef = SOURCES.find(s => s.id === opts.src) || SOURCES[0];
+  const thumbHtml = opts.thumb ? '<img class="epgNotifThumb" src="' + opts.thumb + '" alt="">' : '';
+  const descHtml = opts.desc ? '<div class="epgNotifDesc">' + opts.desc + '</div>' : '';
+  let actionsHtml = '';
+  if (opts.isWatch) {
+    const mkBtn = (act, cls, label, fn, disTip) =>
+      '<button class="btn' + (cls ? ' ' + cls : '') + '" data-act="' + act + '"' + (fn ? '' : ' disabled title="' + (disTip || 'Nedostupné') + '"') + '>' + label + '</button>';
+    actionsHtml =
+      '<div class="epgNotifActions">' +
+        '<div class="epgNotifGrp">' +
+          mkBtn('open', 'primary', 'Zobrazit v EPG', opts.onOpen) +
+          mkBtn('rem', '', '⏰ Přepnout na pořad', opts.onRemind) +
+          mkBtn('dl', '', '⬇ Naplánovat uložení', opts.onSaveDl, opts.dlDisabledReason || 'Uložení není u tohoto zdroje podporováno') +
+        '</div>' +
+        '<div class="epgNotifGrp secondary">' +
+          mkBtn('snooze', '', '🕒 Připomenout zítra', opts.onSnooze) +
+          mkBtn('wait', '', '⏭ Počkat na další', opts.onWaitNext) +
+          mkBtn('del', 'danger', '🗑 Odstranit', opts.onDelete) +
+        '</div>' +
+      '</div>';
+  } else {
+    const simpleBtns = [
+      opts.onOpen ? '<button class="btn primary" data-act="open">Otevřít</button>' : '',
+    ].filter(Boolean).join('');
+    if (simpleBtns) actionsHtml = '<div class="epgNotifBtns">' + simpleBtns + '</div>';
+  }
+  card.innerHTML =
+    '<div class="epgNotifTop"><span class="epgNotifTag">' + (opts.tag || '🔔 Nalezen hlídaný pořad v EPG') + '</span><button class="epgNotifClose" title="Zavřít">×</button></div>' +
+    '<div class="epgNotifBody">' +
+      thumbHtml +
+      '<div class="epgNotifInfo">' +
+        '<div class="epgNotifTitle">' + opts.title + '</div>' +
+        '<div class="epgNotifSrcRow"><img class="epgNotifLogo" src="' + srcDef.logo + '" alt="' + srcDef.name + '"><span>' + opts.station + ' · ' + srcDef.name + ' · ' + opts.time + (opts.query ? (' · filtr „' + opts.query + '“') : '') + '</span></div>' +
+        descHtml +
+      '</div>' +
+    '</div>' +
+    actionsHtml;
+  const dismiss = () => { card.remove(); };
+  card.querySelector('.epgNotifClose').onclick = dismiss;
+  const bind = (act, fn) => {
+    const b = card.querySelector('[data-act="' + act + '"]');
+    if (b && fn && !b.disabled) b.onclick = () => { fn(); dismiss(); };
+  };
+  bind('open', opts.onOpen);
+  bind('rem', opts.onRemind);
+  bind('dl', opts.onSaveDl);
+  bind('snooze', opts.onSnooze);
+  bind('wait', opts.onWaitNext);
+  bind('del', opts.onDelete);
+  stack.appendChild(card);
+  if (opts.autoHideMs) setTimeout(() => { if (card.parentNode) card.remove(); }, opts.autoHideMs);
+}
+renderEpgWatchesDemo();
 function renderEpg(st){
   if(renderEpg._for!==st.name){ epgFilterDemo=''; const fi=document.getElementById('epgFilterDemo'); if(fi) fi.value=''; syncEpgFilterDemoClear(); }
   renderEpg._for=st.name;
@@ -1336,7 +1629,60 @@ function renderEpg(st){
     d.onmouseleave=()=>hideProgDetail();
     e.appendChild(d);
   });
-  if (!shown) e.innerHTML='<div class="emptyNote">Nic neodpovídá filtru.</div>';
+  let otherShown = 0;
+  const appendOtherDemo = (container, ost, targetSrc, oRows) => {
+    const hd = document.createElement('div');
+    hd.className = 'epOtherHead';
+    hd.innerHTML = '<span class="epOtherIni" style="background:' + (ost.color || '#334155') + '">' + (ost.ini || ost.name.slice(0, 2)) + '</span><span>' + ost.name + '</span>';
+    container.appendChild(hd);
+    oRows.forEach((p, idx) => {
+      otherShown++;
+      const d = document.createElement('div'); d.className = 'ep' + (p[2] ? ' now' : '');
+      d.innerHTML = '<span class="t">' + p[0] + '</span><span class="ti">' + p[1] + (p[2] ? '<span class="live">LIVE</span>' : '') + '</span>'
+        + (p[2] ? '<div class="epProg"><div style="width:' + (p[3] || 10) + '%"></div></div>' : '');
+      d.onclick = ev => {
+        ev.stopPropagation();
+        curSrc = targetSrc;
+        const si = (DATA[targetSrc] || []).indexOf(ost);
+        if (si >= 0) selIdx = si;
+        ost.now = p[1]; ost.pct = p[3] || 10;
+        renderAll();
+        log('EPG: „' + p[1] + '“ → ' + ost.name);
+      };
+      d.onmouseenter = () => scheduleProgDetail(d, ost, oRows, idx);
+      d.onmouseleave = () => hideProgDetail();
+      container.appendChild(d);
+    });
+  };
+  if (q && q.length >= 2) {
+    if (epgSearchOtherChDemo) {
+      for (const ost of (DATA[curSrc] || [])) {
+        if (ost.name === st.name) continue;
+        const oRows = (ost.epg || []).filter(p => normName(p[1]).includes(q));
+        if (oRows.length) appendOtherDemo(e, ost, curSrc, oRows);
+      }
+    }
+    if (epgSearchOtherSrcDemo) {
+      for (const s of SOURCES) {
+        if (s.id === curSrc) continue;
+        const matches = [];
+        for (const ost of (DATA[s.id] || [])) {
+          const oRows = (ost.epg || []).filter(p => normName(p[1]).includes(q));
+          if (oRows.length) matches.push({ ost, oRows });
+        }
+        if (!matches.length) continue;
+        const grp = document.createElement('div');
+        grp.className = 'epSrcGroup';
+        const sh = document.createElement('div');
+        sh.className = 'epSrcHead';
+        sh.innerHTML = '<img class="epSrcLogo" src="' + s.logo + '" alt="' + s.name + '"><span>' + s.name + '</span>';
+        grp.appendChild(sh);
+        for (const m of matches) appendOtherDemo(grp, m.ost, s.id, m.oRows);
+        e.appendChild(grp);
+      }
+    }
+  }
+  if (!shown && !otherShown) e.innerHTML='<div class="emptyNote">Nic neodpovídá filtru.</div>';
 }
 document.addEventListener('input',e=>{
   if(e.target&&e.target.id==='epgFilterDemo'){ epgFilterDemo=e.target.value; syncEpgFilterDemoClear(); renderEpg(DATA[curSrc][selIdx]); }
@@ -1406,6 +1752,10 @@ let offDemoT = null, offAttempt = 1, offCountdown = 5;
 function setOfflineDemo(on){
   document.body.classList.toggle('offline', on);
   clearInterval(offDemoT); offDemoT = null;
+  const stEl = document.getElementById('dbgOffState');
+  const btnEl = document.getElementById('dbgSimOffline');
+  if (stEl) stEl.textContent = on ? 'zapnuto' : 'vypnuto';
+  if (btnEl) btnEl.classList.toggle('active', on);
   if(on){
     offAttempt = 1; offCountdown = 5;
     const meta = document.getElementById('offlineMeta');
@@ -1418,7 +1768,163 @@ function setOfflineDemo(on){
     }, 1000);
   }
 }
-setOfflineDemo(true);
+/* ---------- Prototype-only Debug Simulator ---------- */
+(function initProtoDebug() {
+  const panel = document.getElementById('debugPanel');
+  if (!panel) return;
+  document.getElementById('dbgSimOffline').onclick = () => {
+    const next = !document.body.classList.contains('offline');
+    setOfflineDemo(next);
+    log('🐞 debug: nedostupnost sítě ' + (next ? 'ZAPNUTA' : 'VYPNUTA'));
+  };
+  const makeWatchDemoThumb = (stName, timeTxt, c1, c2) => 'data:image/svg+xml;utf8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">' +
+    '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1e293b"/><stop offset="55%" stop-color="' + c1 + '"/><stop offset="100%" stop-color="' + c2 + '"/></linearGradient></defs>' +
+    '<rect width="320" height="200" fill="url(#g)"/>' +
+    '<circle cx="255" cy="52" r="36" fill="#ffffff14"/><circle cx="72" cy="155" r="54" fill="#00000028"/>' +
+    '<rect x="18" y="18" width="76" height="24" rx="6" fill="#e11d48"/><text x="56" y="34" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12" font-weight="700" fill="#fff">HD · EPG</text>' +
+    '<text x="18" y="152" font-family="Segoe UI,sans-serif" font-size="22" font-weight="800" fill="#fff">' + stName.replace(/[<>&]/g, '') + '</text>' +
+    '<text x="18" y="178" font-family="Segoe UI,sans-serif" font-size="13" fill="#e2e8f0">' + timeTxt.replace(/[<>&]/g, '') + '</text></svg>'
+  );
+  const triggerWatchNotif = (cfg) => {
+    const canDownload = cfg.src !== 'vodafone';
+    showEpgWatchNotification({
+      isWatch: true,
+      tag: '🔔 Nalezen hlídaný pořad v EPG',
+      src: cfg.src,
+      station: cfg.station,
+      title: cfg.title,
+      time: cfg.time,
+      query: cfg.query,
+      thumb: makeWatchDemoThumb(cfg.station, cfg.time, cfg.c1 || '#312e81', cfg.c2 || '#be123c'),
+      desc: cfg.desc,
+      dlDisabledReason: 'Vodafone TV používá DRM — uložení není podporováno',
+      onRemind: () => {
+        const k = cfg.src + '|' + cfg.station + '|' + cfg.hm + '|' + cfg.title;
+        reminders[k] = { t: cfg.hm, title: cfg.title, src: cfg.src, station: cfg.station };
+        saveReminders(); renderAll();
+        document.body.classList.add('rightOpen');
+        log('⏰ naplánováno přepnutí na pořad z notifikace: ' + cfg.station + ' – ' + cfg.title);
+      },
+      onSaveDl: canDownload ? () => {
+        const k = cfg.src + '|' + cfg.station + '|' + cfg.hm + '|' + cfg.title;
+        reminders[k] = { ...(reminders[k] || {}), t: cfg.hm, title: cfg.title, src: cfg.src, station: cfg.station, recordAfter: true };
+        saveReminders(); renderAll();
+        document.body.classList.add('rightOpen');
+        log('⬇ naplánováno uložení z archivu po skončení: ' + cfg.station + ' – ' + cfg.title);
+      } : null,
+      onSnooze: () => {
+        log('🕒 upozornění odloženo na zítra: „' + cfg.title + '“');
+      },
+      onWaitNext: () => {
+        log('⏭ přeskočeno — hlídání „' + cfg.query + '“ čeká na další vysílání');
+      },
+      onOpen: () => {
+        document.body.classList.add('leftOpen');
+        const fi = document.getElementById('epgFilterDemo');
+        if (fi) fi.value = cfg.query;
+        epgFilterDemo = cfg.query;
+        syncEpgFilterDemoClear();
+        renderEpg(DATA[curSrc][selIdx]);
+      },
+      onDelete: () => {
+        if (cfg.watchId) {
+          epgWatchesDemo = epgWatchesDemo.filter((x) => x.id !== cfg.watchId);
+          saveEpgWatchesDemo();
+          renderEpgWatchesDemo();
+        }
+        log('🗑 hlídání v EPG odstraněno z notifikace: „' + cfg.query + '“');
+      },
+    });
+  };
+  document.getElementById('dbgSimWatch').onclick = () => {
+    const w = epgWatchesDemo[0] || { id: null, q: 'Zprávy', station: 'ČT1', src: curSrc, otherCh: true, otherSrc: true };
+    const targetSrc = (w.otherSrc && curSrc === 'sltv') ? 'oneplay' : w.src;
+    const stList = DATA[targetSrc] || DATA[curSrc];
+    const st = stList[0] || DATA[curSrc][0];
+    const matchedTitle = w.q.charAt(0).toUpperCase() + w.q.slice(1) + ' — speciální vydání';
+    triggerWatchNotif({
+      watchId: w.id, src: targetSrc, station: st.name, title: matchedTitle,
+      time: 'zítra 20:15 – 21:45', hm: '20:15', query: w.q,
+      desc: 'Speciální večerní vysílání s živými vstupy, analýzami hostů ve studiu a přehledem hlavních událostí dne. Repríza zítra dopoledne s českými titulky.',
+    });
+    log('🐞 debug: simulován nález hlídaného pořadu „' + matchedTitle + '“');
+  };
+  document.getElementById('dbgSimWatchMulti').onclick = () => {
+    const q1 = (epgWatchesDemo[0] && epgWatchesDemo[0].q) || 'Zprávy';
+    const q2 = (epgWatchesDemo[1] && epgWatchesDemo[1].q) || 'Kriminálka';
+    const q3 = (epgWatchesDemo[2] && epgWatchesDemo[2].q) || 'Megastavby';
+    triggerWatchNotif({
+      watchId: epgWatchesDemo[0]?.id || null, src: 'sltv', station: 'ČT1',
+      title: q1.charAt(0).toUpperCase() + q1.slice(1) + ' — večerní speciál',
+      time: 'dnes 20:10 – 21:05', hm: '20:10', query: q1, c1: '#1d4ed8', c2: '#be123c',
+      desc: 'Živé zpravodajství a komentáře k nejdůležitějším událostem dne s reportéry z terénu a hosty ve studiu.',
+    });
+    triggerWatchNotif({
+      watchId: epgWatchesDemo[1]?.id || null, src: 'oneplay', station: 'Oneplay 1',
+      title: q2.charAt(0).toUpperCase() + q2.slice(1) + ' — premiérový díl',
+      time: 'zítra 21:30 – 22:45', hm: '21:30', query: q2, c1: '#4c1d95', c2: '#0f766e',
+      desc: 'Napínavý nový případ týmu vyšetřovatelů, který rozplétá záhadné zmizení v pohraničí.',
+    });
+    triggerWatchNotif({
+      watchId: epgWatchesDemo[2]?.id || null, src: 'vodafone', station: 'National Geographic',
+      title: q3.charAt(0).toUpperCase() + q3.slice(1) + ' — inženýrské zázraky',
+      time: 'pátek 19:00 – 20:00', hm: '19:00', query: q3, c1: '#92400e', c2: '#991b1b',
+      desc: 'Dokumentární pohled do zákulisí nejnáročnějších moderních staveb na světě (DRM zdroj — bez možnosti uložení).',
+    });
+    log('🐞 debug: simulován nález 3 hlídaných pořadů najednou');
+  };
+  document.getElementById('dbgSimReminder').onclick = () => {
+    const st = DATA[curSrc][(selIdx + 1) % DATA[curSrc].length] || DATA[curSrc][0];
+    selIdx = DATA[curSrc].indexOf(st);
+    renderAll();
+    showEpgWatchNotification({
+      tag: '⏰ Připomínka spuštěna',
+      src: curSrc,
+      station: st.name,
+      title: st.now || 'Naplánovaný pořad',
+      time: 'právě začíná',
+      autoHideMs: 8000,
+    });
+    log('🐞 debug: připomínka přepnula na ' + st.name);
+  };
+  document.getElementById('dbgSimCollision').onclick = () => {
+    const st = DATA[curSrc][selIdx];
+    openCollisionModal(
+      '⏺ ' + st.name + ' – Večerní film (20:00 – 21:45 +15 min)',
+      [{ label: '⏺ Nahrávání: ČT2 – Dokumentární večer (20:30 – 21:30 +15 min)' }],
+      () => { log('🐞 debug: kolidující plán nahrazen'); }
+    );
+  };
+  document.getElementById('dbgSimArchiveDl').onclick = () => {
+    const st = DATA[curSrc][selIdx];
+    const k = curSrc + '|' + st.name + '|18:00|Archivní pořad (demo)';
+    reminders[k] = { t: '18:00', title: 'Archivní pořad (demo)', src: curSrc, station: st.name, recordAfter: true };
+    saveReminders(); renderAll();
+    document.body.classList.add('rightOpen');
+    log('🐞 debug: přidáno demo stažení z archivu');
+  };
+  document.getElementById('dbgSimPinFail').onclick = () => {
+    const st = DATA[curSrc][selIdx];
+    const k = curSrc + '|' + st.name + '|19:00|Seriál bez pokračování (demo)';
+    reminders[k] = { t: '19:00', title: 'Seriál bez pokračování (demo)', src: curSrc, station: st.name, pinned: true, failed: true };
+    saveReminders(); renderAll();
+    document.body.classList.add('rightOpen');
+    log('🐞 debug: přidán připnutý seriál s chybou přeplánování');
+  };
+  document.getElementById('dbgSimSessionExp').onclick = () => {
+    const srcDef = SOURCES.find(s => s.id === curSrc) || SOURCES[0];
+    showEpgWatchNotification({
+      tag: '🔑 Sezení vypršelo',
+      src: curSrc,
+      station: 'Vyžadováno nové přihlášení',
+      title: srcDef.name + ': přihlas se prosím znovu',
+      time: 'právě teď',
+      onOpen: () => { openLoginModal(curSrc); },
+    });
+    log('🐞 debug: simulována expirace sezení pro ' + srcDef.name);
+  };
+})();
 /* Ovladani hlasitosti streamu (demo: jen UI + log, zadne audio) */
 let demoVol = +(localStorage.getItem('protoVol') || 80);
 function syncVol(muted){
@@ -1758,6 +2264,7 @@ document.addEventListener('mouseleave',()=>{ cancelBottomClose(); cancelTopClose
   const DEF={ bright:100, cont:100, sat:100, warm:0, tone:0, noise:0, vig:0, cas:0, up:0, auto:0, bypass:false };
   const flt={ ...DEF };
   const BUILTIN={
+    standardEnhanced:{ label:'Standard - vylepšeno', bright:105, cont:95, sat:95, warm:0, tone:15, noise:2, vig:0, cas:2, up:1, auto:1 },
     cinema:{ label:'Kino', bright:95, cont:115, sat:92, warm:8, tone:25, noise:8, vig:35, cas:0, up:0, auto:0 },
     vivid:{ label:'Sport / Živé', bright:105, cont:118, sat:128, warm:0, tone:35, noise:0, vig:0, cas:1, up:0, auto:0 },
     night:{ label:'Noční', bright:82, cont:96, sat:88, warm:24, tone:10, noise:0, vig:20, cas:0, up:0, auto:0 },

@@ -309,14 +309,72 @@
   body.leftOpen #panelL { transform:none; }
   #epgHead { padding:14px 14px 4px; font-size:16px; font-weight:700; }
   #epg { flex:1; overflow-y:auto; padding:0 8px 12px; margin-right:10px; }
-  #epgFilterWrap { padding:6px 14px; position:relative; }
+  #epgFilterWrap { padding:6px 14px; display:flex; align-items:center; gap:6px; }
+  .epgInputBox { position:relative; flex:1; min-width:0; }
   #epgFilter { width:100%; background:#0b0e14; color:var(--text); border:1px solid var(--line);
     border-radius:10px; padding:8px 30px 8px 10px; font-size:13px; font-family:inherit; }
-  #epgFilterClear { position:absolute; right:20px; top:50%; transform:translateY(-50%);
+  #epgFilterClear { position:absolute; right:6px; top:50%; transform:translateY(-50%);
     width:22px; height:22px; border:none; border-radius:50%; background:transparent; color:var(--dim);
     font-size:15px; line-height:1; cursor:pointer; display:none; padding:0; }
   #epgFilterClear:hover { background:var(--acc); color:#fff; }
   #epgFilterClear.on { display:block; }
+  .epgWatchBtn { flex:none; width:34px; height:34px; border-radius:10px; border:1px solid var(--line);
+    background:#1b2234; color:var(--text); font-size:15px; cursor:pointer; display:inline-flex;
+    align-items:center; justify-content:center; transition:background .15s, border-color .15s, opacity .15s; }
+  .epgWatchBtn:hover:not(:disabled) { background:var(--acc); border-color:var(--acc); color:#fff; }
+  .epgWatchBtn:disabled { opacity:.35; cursor:not-allowed; }
+  #epgFilterOpts { display:flex; flex-direction:column; gap:5px; padding:2px 14px 8px; border-bottom:1px solid var(--line); }
+  #epgWatchList { display:none; padding:8px 14px; border-bottom:1px solid var(--line); background:rgba(11,14,20,.45); }
+  #epgWatchList.on { display:block; }
+  .epgWatchRow { display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:8px; background:#141926; border:1px solid var(--line); margin-bottom:5px; cursor:pointer; transition:border-color .15s, background .15s; }
+  .epgWatchRow:last-child { margin-bottom:0; }
+  .epgWatchRow:hover { border-color:var(--acc); background:#1b2234; }
+  .epgWatchRow .wi { font-size:13px; flex:none; }
+  .epgWatchRow .wt { flex:1; min-width:0; font-size:12px; font-weight:600; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .epgWatchRow .wt small { display:block; font-size:10px; font-weight:400; color:var(--dim); }
+  .epgWatchRow .wx { flex:none; width:20px; height:20px; border:none; border-radius:50%; background:transparent; color:var(--dim); font-size:14px; line-height:1; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; }
+  .epgWatchRow .wx:hover { background:var(--acc); color:#fff; }
+  /* ---------- EPG watch match notification stack (under #panelT z-index:48) ---------- */
+  #epgNotifyStack { position:fixed; top:18px; left:50%; transform:translateX(-50%); z-index:45;
+    display:flex; flex-direction:column; gap:10px; width:min(640px, 94vw); max-height:calc(100vh - 36px);
+    overflow-y:auto; padding:2px 4px 8px; pointer-events:none; scrollbar-width:thin; scrollbar-color:#3b4763 transparent; }
+  .epgNotif { pointer-events:auto; background:rgba(20,25,38,.97); backdrop-filter:blur(12px);
+    border:1px solid var(--acc); border-radius:14px; padding:14px 16px; box-shadow:0 18px 46px #000c;
+    display:flex; flex-direction:column; gap:10px; animation:notifIn .22s ease; }
+  @keyframes notifIn { from { opacity:0; transform:translateY(-10px); } to { opacity:1; transform:none; } }
+  .epgNotifTop { display:flex; align-items:center; gap:8px; }
+  .epgNotifTag { font-size:11px; font-weight:700; color:#fb7185; letter-spacing:.3px; flex:1; }
+  .epgNotifClose { background:transparent; border:none; color:var(--dim); font-size:16px; cursor:pointer; padding:0 4px; line-height:1; }
+  .epgNotifClose:hover { color:#fff; }
+  .epgNotifBody { display:flex; align-items:flex-start; gap:14px; }
+  .epgNotifThumb { width:148px; height:92px; border-radius:10px; object-fit:cover; flex:none; background:#0b0e14; border:1px solid var(--line); }
+  .epgNotifThumb.logo { object-fit:contain; padding:10px; }
+  .epgNotifThumbBadge { width:148px; height:92px; border-radius:10px; flex:none; display:flex; align-items:center; justify-content:center;
+    font-size:22px; font-weight:800; color:#fff; border:1px solid var(--line); }
+  .epgNotifLogo { height:20px; max-width:68px; object-fit:contain; border-radius:4px; flex:none; }
+  .epgNotifInfo { flex:1; min-width:0; display:flex; flex-direction:column; gap:4px; }
+  .epgNotifSrcRow { display:flex; align-items:center; gap:7px; flex-wrap:wrap; font-size:12px; color:#cbd5e1; }
+  .epgNotifTitle { font-size:15px; font-weight:700; color:#fff; line-height:1.25; }
+  .epgNotifDesc { font-size:12px; color:#94a3b8; line-height:1.45; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+  .epgNotifActions { display:flex; flex-direction:column; gap:6px; padding-top:8px; border-top:1px solid var(--line); }
+  .epgNotifGrp { display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; }
+  .epgNotifGrp.secondary { padding-top:6px; border-top:1px dashed rgba(148,163,184,.2); }
+  .epgNotifActions .btn { padding:7px 8px; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center; }
+  .epgNotifActions .btn:disabled { opacity:.35; cursor:not-allowed; pointer-events:auto; }
+  .epgNotifActions .btn:disabled:hover { background:#0b0e14; border-color:var(--line); color:var(--text); }
+  .epgNotifActions .btn.danger { border-color:#e11d4866; color:#fda4af; }
+  .epgNotifActions .btn.danger:hover:not(:disabled) { background:#e11d48; border-color:#e11d48; color:#fff; }
+  .epgOpt { display:flex; align-items:center; gap:7px; font-size:12px; color:var(--dim); cursor:pointer; user-select:none; }
+  .epgOpt:hover { color:var(--text); }
+  .epgOpt input[type="checkbox"] { accent-color:var(--acc); width:14px; height:14px; margin:0; cursor:pointer; }
+  .epSrcGroup { margin-top:28px; }
+  .epSrcGroup:first-child { margin-top:4px; }
+  .epSrcHead { display:flex; align-items:center; gap:8px; height:34px; box-sizing:border-box; padding:6px 8px;
+    position:sticky; top:0; z-index:3; background:var(--panel); border-bottom:1px solid var(--line);
+    font-size:12px; font-weight:700; color:var(--dim); text-transform:uppercase; letter-spacing:.5px; }
+  .epSrcGroup .epDay { top:34px; }
+  .epSrcHead + .epOtherHead { border-top:none; margin-top:6px; }
+  .epSrcLogo { height:20px; max-width:96px; object-fit:contain; flex:none; }
   .epDay { font-size:11px; font-weight:700; letter-spacing:1px; color:var(--dim); padding:6px 8px;
     text-transform:uppercase; position:sticky; top:0; background:var(--panel); z-index:2;
     border-bottom:1px solid var(--line); margin:14px 0 6px; }
@@ -708,7 +766,15 @@
   <aside id="panelL">
     <div class="resizer" id="resL" title="Roztáhni myší"></div>
     <div id="epgHead">Program</div>
-    <div id="epgFilterWrap"><input id="epgFilter" placeholder="Hledat pořad…" autocomplete="off"><button id="epgFilterClear" title="Smazat text">×</button></div>
+    <div id="epgFilterWrap">
+      <div class="epgInputBox"><input id="epgFilter" placeholder="Hledat pořad…" autocomplete="off"><button id="epgFilterClear" title="Smazat text">×</button></div>
+      <button id="btnEpgWatch" class="epgWatchBtn" title="Uložit vyhledávání a upozornit, až se pořad objeví v EPG" disabled>🔔</button>
+    </div>
+    <div id="epgFilterOpts">
+      <label class="epgOpt"><input type="checkbox" id="epgOptOtherCh" checked><span id="epgOptOtherChLbl">Prohledávat ostatní kanály</span></label>
+      <label class="epgOpt"><input type="checkbox" id="epgOptOtherSrc"><span id="epgOptOtherSrcLbl">Prohledávat i ostatní zdroje</span></label>
+    </div>
+    <div id="epgWatchList"></div>
     <div id="epg"></div>
   </aside>
 
@@ -832,6 +898,22 @@
       </div>
     </div>
   </div>
+  <div class="protoModal" id="epgWatchModal">
+    <div class="protoModalCard">
+      <h2 id="wmTitle">🔔 Uložit hlídání v EPG</h2>
+      <p id="wmSub">Jakmile se v programu objeví odpovídající pořad, aplikace zobrazí upozornění.</p>
+      <div class="mBox" id="wmSummary"></div>
+      <div style="display:flex;flex-direction:column;gap:8px;padding:4px 2px;">
+        <label class="epgOpt"><input type="checkbox" id="wmOtherCh"><span id="wmOtherChLbl">Prohledávat ostatní kanály</span></label>
+        <label class="epgOpt"><input type="checkbox" id="wmOtherSrc"><span id="wmOtherSrcLbl">Prohledávat i ostatní zdroje</span></label>
+      </div>
+      <div class="mRow">
+        <button class="btn" id="btnWmCancel">Zrušit</button>
+        <button class="btn primary" id="btnWmSave">Uložit hlídání</button>
+      </div>
+    </div>
+  </div>
+  <div id="epgNotifyStack"></div>
 
   <script src="./app.js" type="module"></script>
 </body>
