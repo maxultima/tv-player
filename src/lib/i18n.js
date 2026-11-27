@@ -18,6 +18,7 @@ const DICT = {
     epgFilter: 'Search program…',
     epgSearchOtherCh: 'Search other channels',
     epgSearchOtherSrc: 'Search other sources',
+    epgSearchDesc: 'Search program descriptions',
     epgWatchBtnTitle: 'Save search and notify when a matching program appears in EPG',
     epgWatchModalTitle: '🔔 Save EPG Watch',
     epgWatchModalSub: 'When a matching program appears in the guide, a notification will be shown.',
@@ -28,6 +29,7 @@ const DICT = {
     epgWatchScopeSrc: 'all channels ({src})',
     epgWatchScopeStOtherSrc: '{st} + other sources',
     epgWatchScopeStOnly: '{st} only ({src})',
+    epgWatchScopeDesc: '+ descriptions',
     epgWatchRowTip: 'Click to show current matches in EPG',
     epgWatchDelTip: 'Delete watch',
     epgNotifTag: '🔔 Watched program found in EPG',
@@ -46,6 +48,7 @@ const DICT = {
     notSignedIn: 'not signed in',
     signedIn: 'signed in',
     stationsCount: '{n} stations',
+    streamRateTitle: 'Stream download speed',
     // Top filters panel
     fltTitle: '✨ Video Filters',
     presetDefault: 'Default',
@@ -174,6 +177,7 @@ const DICT = {
     epgFilter: 'Hledat pořad…',
     epgSearchOtherCh: 'Prohledávat ostatní kanály',
     epgSearchOtherSrc: 'Prohledávat i ostatní zdroje',
+    epgSearchDesc: 'Prohledávat i popisky pořadů',
     epgWatchBtnTitle: 'Uložit vyhledávání a upozornit, až se pořad objeví v EPG',
     epgWatchModalTitle: '🔔 Uložit hlídání v EPG',
     epgWatchModalSub: 'Jakmile se v programu objeví odpovídající pořad, aplikace zobrazí upozornění.',
@@ -184,6 +188,7 @@ const DICT = {
     epgWatchScopeSrc: 'všechny kanály ({src})',
     epgWatchScopeStOtherSrc: '{st} + ostatní zdroje',
     epgWatchScopeStOnly: 'jen {st} ({src})',
+    epgWatchScopeDesc: '+ popisky',
     epgWatchRowTip: 'Kliknutím zobrazíš aktuální shody v EPG',
     epgWatchDelTip: 'Smazat hlídání',
     epgNotifTag: '🔔 Nalezen hlídaný pořad v EPG',
@@ -202,6 +207,7 @@ const DICT = {
     notSignedIn: 'nepřihlášeno',
     signedIn: 'přihlášeno',
     stationsCount: '{n} stanic',
+    streamRateTitle: 'Rychlost stahování streamu',
     fltTitle: '✨ Obrazové filtry',
     presetDefault: 'Výchozí',
     presetStandardEnhanced: 'Standard - vylepšeno',
@@ -344,6 +350,7 @@ export function applyI18n() {
   setText('#langRow label', 'langLabel');
   setText('#autostartRow span', 'autostart');
   setTitle('#autostartRow', 'autostartTitle');
+  setTitle('#streamRate', 'streamRateTitle');
   const langSel = document.getElementById('langSel');
   if (langSel) langSel.value = curLang;
 
@@ -366,10 +373,12 @@ export function applyI18n() {
   setTitle('#btnEpgWatch', 'epgWatchBtnTitle');
   setText('#epgOptOtherChLbl', 'epgSearchOtherCh');
   setText('#epgOptOtherSrcLbl', 'epgSearchOtherSrc');
+  setText('#epgOptDescLbl', 'epgSearchDesc');
   setText('#wmTitle', 'epgWatchModalTitle');
   setText('#wmSub', 'epgWatchModalSub');
   setText('#wmOtherChLbl', 'epgSearchOtherCh');
   setText('#wmOtherSrcLbl', 'epgSearchOtherSrc');
+  setText('#wmInDescLbl', 'epgSearchDesc');
   setText('#btnWmCancel', 'btnCancel');
   setText('#btnWmSave', 'epgWatchSave');
 

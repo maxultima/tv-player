@@ -172,6 +172,8 @@
   .resizer:hover, .resizer.drag { background:#e11d4888; }
   #winBtns { display:flex; gap:6px; justify-content:space-between; padding:10px 14px 0; align-items:center; }
   #winBtns .grp { display:flex; gap:6px; }
+  #streamRate { font-size:11px; font-weight:600; color:var(--dim); font-variant-numeric:tabular-nums; letter-spacing:.2px; white-space:nowrap; opacity:0; transition:opacity .2s; }
+  #streamRate.on { opacity:1; }
   .wbtn { width:34px; height:26px; border:1px solid var(--line); background:var(--panel2); color:var(--dim);
     border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:12px; cursor:pointer; user-select:none; }
   .wbtn:hover { color:var(--text); border-color:var(--acc); }
@@ -273,8 +275,13 @@
     font-size:15px; line-height:1; cursor:pointer; display:none; padding:0; }
   #stationFilterClear:hover { background:#e11d48; color:#fff; }
   #stationFilterClear.on { display:block; }
-  #epgFilterWrap { padding:6px 14px; display:flex; align-items:center; gap:6px; }
-  .epgInputBox { position:relative; flex:1; min-width:0; }
+  #epgFilterWrap { padding:6px 14px 4px; display:flex; align-items:flex-start; gap:6px; }
+  .epgInputCol { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+  .epgInputBox { position:relative; width:100%; }
+  #epgSearchProg { height:3px; width:100%; border-radius:99px; background:rgba(255,255,255,.08); overflow:hidden; opacity:0; transition:opacity .15s ease; }
+  #epgSearchProg.on { opacity:1; }
+  #epgSearchProgFill { height:100%; width:0%; background:linear-gradient(90deg,var(--acc2),#60a5fa); border-radius:99px; transition:width .08s linear; }
+  mark.epgHl { background:rgba(250,204,21,.28); color:#fef08a; border-radius:3px; padding:0 1px; margin:0 -1px; }
   #epgFilterDemo { width:100%; background:#0b0e14; color:var(--text); border:1px solid var(--line);
     border-radius:10px; padding:8px 30px 8px 10px; font-size:13px; font-family:inherit; }
   #epgFilterDemoClear { position:absolute; right:6px; top:50%; transform:translateY(-50%);
@@ -598,7 +605,7 @@
   <!-- RIGHT: sources / favs / stations -->
   <aside id="panelR">
     <div class="resizer" id="resR" title="roztáhni myšítkem"></div>
-    <div id="winBtns"><span class="grp"><span class="wbtn help" id="srcToggle" title="Sbalit/rozbalit zdroje a konfiguraci">▾</span><span class="wbtn help" id="btnHelp" title="Nápověda k ovládání">?</span></span><span class="grp"><span class="wbtn" id="wMin" title="Minimalizovat">—</span><span class="wbtn" id="wMax" title="Maximalizovat">▢</span><span class="wbtn danger" id="wClose" title="Zavřít">✕</span></span></div>
+    <div id="winBtns"><span class="grp"><span class="wbtn help" id="srcToggle" title="Sbalit/rozbalit zdroje a konfiguraci">▾</span><span class="wbtn help" id="btnHelp" title="Nápověda k ovládání">?</span></span><span id="streamRate" title="Rychlost stahování streamu"></span><span class="grp"><span class="wbtn" id="wMin" title="Minimalizovat">—</span><span class="wbtn" id="wMax" title="Maximalizovat">▢</span><span class="wbtn danger" id="wClose" title="Zavřít">✕</span></span></div>
     <div id="helpPop">
       <img class="helpBanner" src="docs/banner.jpg" alt="TV Client">
       <div class="helpGrid">
@@ -759,12 +766,16 @@
     <div id="epgHead">Program</div>
     <div id="epgSub"></div>
     <div id="epgFilterWrap">
-      <div class="epgInputBox"><input id="epgFilterDemo" placeholder="Hledat pořad…" autocomplete="off"><button id="epgFilterDemoClear" title="Smazat text">×</button></div>
+      <div class="epgInputCol">
+        <div class="epgInputBox"><input id="epgFilterDemo" placeholder="Hledat pořad…" autocomplete="off"><button id="epgFilterDemoClear" title="Smazat text">×</button></div>
+        <div id="epgSearchProg"><div id="epgSearchProgFill"></div></div>
+      </div>
       <button id="btnEpgWatch" class="epgWatchBtn" title="Uložit vyhledávání a upozornit, až se pořad objeví v EPG" disabled>🔔</button>
     </div>
     <div id="epgFilterOpts">
       <label class="epgOpt"><input type="checkbox" id="epgOptOtherCh" checked><span>Prohledávat ostatní kanály</span></label>
       <label class="epgOpt"><input type="checkbox" id="epgOptOtherSrc"><span>Prohledávat i ostatní zdroje</span></label>
+      <label class="epgOpt"><input type="checkbox" id="epgOptDesc"><span>Prohledávat i popisky pořadů</span></label>
     </div>
     <div id="epgWatchList"></div>
     <div id="epg"></div>
@@ -905,6 +916,7 @@
       <div style="display:flex;flex-direction:column;gap:8px;padding:4px 2px;">
         <label class="epgOpt"><input type="checkbox" id="wmOtherCh"><span>Prohledávat ostatní kanály</span></label>
         <label class="epgOpt"><input type="checkbox" id="wmOtherSrc"><span>Prohledávat i ostatní zdroje</span></label>
+        <label class="epgOpt"><input type="checkbox" id="wmInDesc"><span>Prohledávat i popisky pořadů</span></label>
       </div>
       <div class="mRow">
         <button class="btn" id="btnWmCancel">Zrušit</button>
@@ -1414,15 +1426,91 @@ function updateBottomClock(){
   if(c) c.textContent = p(now.getHours()) + ':' + p(now.getMinutes()) + ':' + p(now.getSeconds());
 }
 updateBottomClock();
-setInterval(() => { if(!document.hidden) updateBottomClock(); }, 1000);
+setInterval(() => {
+  if (!document.hidden) updateBottomClock();
+  const sr = document.getElementById('streamRate');
+  if (sr) {
+    const playing = !paused && !document.body.classList.contains('offline') && DATA[curSrc] && DATA[curSrc][selIdx];
+    if (playing) {
+      const kbps = 680 + Math.round(Math.sin(Date.now() / 1700) * 140 + (Math.random() - 0.5) * 90);
+      sr.textContent = kbps >= 1024 ? ('↓ ' + (kbps / 1024).toFixed(2) + ' MB/s') : ('↓ ' + kbps + ' KB/s');
+      sr.classList.add('on');
+    } else {
+      sr.textContent = '';
+      sr.classList.remove('on');
+    }
+  }
+}, 1000);
 let epgFilterDemo='';
 let epgSearchOtherChDemo = localStorage.getItem('tv_demo_epg_other_ch') !== '0';
 let epgSearchOtherSrcDemo = localStorage.getItem('tv_demo_epg_other_src') === '1';
+let epgSearchDescDemo = localStorage.getItem('tv_demo_epg_desc') === '1';
+let epgDemoSearchJobId = 0;
+let epgDemoSearchT = null;
+let epgDemoProgHideT = null;
+function setEpgDemoProg(active, pct) {
+  clearTimeout(epgDemoProgHideT);
+  epgDemoProgHideT = null;
+  const bar = document.getElementById('epgSearchProg');
+  const fill = document.getElementById('epgSearchProgFill');
+  if (!bar || !fill) return;
+  if (active) {
+    bar.classList.add('on');
+    fill.style.width = Math.max(0, Math.min(100, pct || 0)) + '%';
+  } else {
+    bar.classList.remove('on');
+    if (pct === 0) fill.style.width = '0%';
+  }
+}
+function cancelEpgDemoSearch() {
+  epgDemoSearchJobId++;
+  if (epgDemoSearchT) { clearTimeout(epgDemoSearchT); epgDemoSearchT = null; }
+  setEpgDemoProg(false, 0);
+}
+function escHtmlDemo(s) {
+  return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function highlightMatchDemo(text, rawQuery) {
+  const src = String(text || '');
+  const q = normName(rawQuery);
+  if (!q) return escHtmlDemo(src);
+  let norm = '';
+  const map = [];
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i].normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    for (let j = 0; j < ch.length; j++) { norm += ch[j]; map.push(i); }
+  }
+  if (!norm) return escHtmlDemo(src);
+  let out = '', pos = 0, from = 0;
+  while (from < norm.length) {
+    const hit = norm.indexOf(q, from);
+    if (hit < 0) break;
+    const origStart = map[hit];
+    const origEnd = map[hit + q.length - 1] + 1;
+    if (origStart > pos) out += escHtmlDemo(src.slice(pos, origStart));
+    out += '<mark class="epgHl">' + escHtmlDemo(src.slice(origStart, origEnd)) + '</mark>';
+    pos = origEnd;
+    from = hit + q.length;
+  }
+  if (pos < src.length) out += escHtmlDemo(src.slice(pos));
+  return out;
+}
+function epgMatchesDemo(p, q, inDesc) {
+  if (!q) return true;
+  if (normName(p[1]).includes(q)) return true;
+  if (inDesc) {
+    const desc = DEMO_DESC[p[1]] || '';
+    if (desc && normName(desc).includes(q)) return true;
+  }
+  return false;
+}
 (function initEpgFilterOptsDemo(){
   const c1 = document.getElementById('epgOptOtherCh');
   const c2 = document.getElementById('epgOptOtherSrc');
+  const c3 = document.getElementById('epgOptDesc');
   if (c1) { c1.checked = epgSearchOtherChDemo; c1.onchange = () => { epgSearchOtherChDemo = !!c1.checked; localStorage.setItem('tv_demo_epg_other_ch', epgSearchOtherChDemo ? '1' : '0'); renderEpg(DATA[curSrc][selIdx]); }; }
   if (c2) { c2.checked = epgSearchOtherSrcDemo; c2.onchange = () => { epgSearchOtherSrcDemo = !!c2.checked; localStorage.setItem('tv_demo_epg_other_src', epgSearchOtherSrcDemo ? '1' : '0'); renderEpg(DATA[curSrc][selIdx]); }; }
+  if (c3) { c3.checked = epgSearchDescDemo; c3.onchange = () => { epgSearchDescDemo = !!c3.checked; localStorage.setItem('tv_demo_epg_desc', epgSearchDescDemo ? '1' : '0'); renderEpg(DATA[curSrc][selIdx]); }; }
 })();
 function syncEpgFilterDemoClear(){
   const val = (document.getElementById('epgFilterDemo')?.value || '');
@@ -1447,10 +1535,12 @@ function saveEpgWatchesDemo() {
 }
 function describeWatchScope(w) {
   const srcName = (SOURCES.find(s => s.id === w.src) || {}).name || w.src;
-  if (w.otherCh && w.otherSrc) return 'všechny kanály · všechny zdroje';
-  if (w.otherCh) return 'všechny kanály (' + srcName + ')';
-  if (w.otherSrc) return w.station + ' + ostatní zdroje';
-  return 'jen ' + w.station + ' (' + srcName + ')';
+  let base;
+  if (w.otherCh && w.otherSrc) base = 'všechny kanály · všechny zdroje';
+  else if (w.otherCh) base = 'všechny kanály (' + srcName + ')';
+  else if (w.otherSrc) base = w.station + ' + ostatní zdroje';
+  else base = 'jen ' + w.station + ' (' + srcName + ')';
+  return w.inDesc ? (base + ' · + popisky') : base;
 }
 function renderEpgWatchesDemo() {
   const box = document.getElementById('epgWatchList');
@@ -1469,9 +1559,11 @@ function renderEpgWatchesDemo() {
       epgFilterDemo = w.q;
       epgSearchOtherChDemo = !!w.otherCh;
       epgSearchOtherSrcDemo = !!w.otherSrc;
-      const c1 = document.getElementById('epgOptOtherCh'), c2 = document.getElementById('epgOptOtherSrc');
+      epgSearchDescDemo = !!w.inDesc;
+      const c1 = document.getElementById('epgOptOtherCh'), c2 = document.getElementById('epgOptOtherSrc'), c3 = document.getElementById('epgOptDesc');
       if (c1) c1.checked = epgSearchOtherChDemo;
       if (c2) c2.checked = epgSearchOtherSrcDemo;
+      if (c3) c3.checked = epgSearchDescDemo;
       syncEpgFilterDemoClear();
       renderEpg(DATA[curSrc][selIdx]);
     };
@@ -1490,7 +1582,8 @@ function updateWatchModalSummary() {
   if (!pendingWatchDraft) return;
   const oCh = !!document.getElementById('wmOtherCh').checked;
   const oSrc = !!document.getElementById('wmOtherSrc').checked;
-  const draft = { ...pendingWatchDraft, otherCh: oCh, otherSrc: oSrc };
+  const inDesc = !!document.getElementById('wmInDesc').checked;
+  const draft = { ...pendingWatchDraft, otherCh: oCh, otherSrc: oSrc, inDesc };
   document.getElementById('wmSummary').innerHTML =
     '<div><b>Hledaný výraz:</b> „' + draft.q + '“</div>' +
     '<div style="margin-top:4px;color:#cbd5e1"><b>Rozsah skenování:</b> ' + describeWatchScope(draft) + '</div>';
@@ -1502,6 +1595,7 @@ function openEpgWatchModal() {
   pendingWatchDraft = { q, station: st ? st.name : '', src: curSrc };
   document.getElementById('wmOtherCh').checked = epgSearchOtherChDemo;
   document.getElementById('wmOtherSrc').checked = epgSearchOtherSrcDemo;
+  document.getElementById('wmInDesc').checked = epgSearchDescDemo;
   updateWatchModalSummary();
   document.getElementById('epgWatchModal').classList.add('on');
 }
@@ -1512,6 +1606,7 @@ function closeEpgWatchModal() {
 document.getElementById('btnEpgWatch').onclick = openEpgWatchModal;
 document.getElementById('wmOtherCh').onchange = updateWatchModalSummary;
 document.getElementById('wmOtherSrc').onchange = updateWatchModalSummary;
+document.getElementById('wmInDesc').onchange = updateWatchModalSummary;
 document.getElementById('btnWmCancel').onclick = closeEpgWatchModal;
 document.getElementById('btnWmSave').onclick = () => {
   if (!pendingWatchDraft) return;
@@ -1522,6 +1617,7 @@ document.getElementById('btnWmSave').onclick = () => {
     src: pendingWatchDraft.src,
     otherCh: !!document.getElementById('wmOtherCh').checked,
     otherSrc: !!document.getElementById('wmOtherSrc').checked,
+    inDesc: !!document.getElementById('wmInDesc').checked,
   };
   epgWatchesDemo.push(w);
   saveEpgWatchesDemo();
@@ -1593,103 +1689,135 @@ function showEpgWatchNotification(opts) {
 }
 renderEpgWatchesDemo();
 function renderEpg(st){
-  if(renderEpg._for!==st.name){ epgFilterDemo=''; const fi=document.getElementById('epgFilterDemo'); if(fi) fi.value=''; syncEpgFilterDemoClear(); }
+  if(renderEpg._for!==st.name){ epgFilterDemo=''; const fi=document.getElementById('epgFilterDemo'); if(fi) fi.value=''; syncEpgFilterDemoClear(); cancelEpgDemoSearch(); }
   renderEpg._for=st.name;
-  const e=$('#epg'); e.innerHTML='';
+  const e=$('#epg');
   const q=normName(epgFilterDemo);
-  let shown=0;
-  const liveIdx = (st.epg || []).findIndex(x => !!x[2]);
-  const rows=st.epg.filter(p=>!q||normName(p[1]).includes(q));
-  rows.forEach((p,idx)=>{
-    shown++;
-    const origIdx = (st.epg || []).indexOf(p);
-    const d=document.createElement('div'); d.className='ep'+(p[2]?' now':'');
-    const marked = !!reminders[progKey(st,p)];
-    const recOn = !!(reminders[progKey(st,p)] && reminders[progKey(st,p)].record) || !!(activeRec[curSrc] && activeRec[curSrc].station === st.name && activeRec[curSrc].title === p[1]);
-    const upcoming = !p[2] && (liveIdx >= 0 ? origIdx > liveIdx : true);
-    const canRec = !!p[2] || upcoming;
-    const recAfterOn = !!(reminders[progKey(st,p)] && reminders[progKey(st,p)].recordAfter);
-    const dlSvg = '<svg viewBox="0 0 16 16" width="13" height="13" style="vertical-align:-2px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M8 2v8m-3-3 3 3 3-3M3 13h10"/></svg>';
-    d.innerHTML='<span class="t">'+p[0]+'</span><span class="ti">'+p[1]+(p[2]?'<span class="live">LIVE</span>':'')+'</span>'
-      +(canRec?'<span class="recBtn'+(recAfterOn?' on':'')+' recAfter" title="Stáhnout z archivu po skončení pořadu (PC může mezitím spát)">'+dlSvg+'</span>':'')
-      +(canRec?'<span class="recBtn'+(recOn?' on':'')+' recLive" title="'+(p[2]?'Nahrávat hned':'Naplánovat nahrávání')+'">⏺</span>':'')
-      +(upcoming?'<span class="rem'+(marked?' on':'')+'" title="Připomenout a v daný čas přepnout">⏰</span>':'')
-      +(p[2]?'<div class="epProg"><div style="width:'+(p[3]||10)+'%'+'"></div></div>':'');
-    if(canRec) d.querySelector('.recAfter').onclick=ev=>{
-      ev.stopPropagation();
-      const k=progKey(st,p);
-      if(reminders[k]&&reminders[k].recordAfter){ delete reminders[k].recordAfter; if(!reminders[k].record&&!reminders[k].pinned) delete reminders[k]; log('📥 stažení po skončení zrušeno: '+p[1]); }
-      else { const prev=reminders[k]||{}; reminders[k]={...prev, t:p[0], title:p[1], src:curSrc, station:st.name, recordAfter:true}; log('📥 naplánováno stažení z archivu po skončení: '+st.name+' – '+p[1]); }
-      saveReminders(); renderAll();
-    };
-    if(canRec) d.querySelector('.recLive').onclick=ev=>{ev.stopPropagation(); toggleRecordFor(st,p);};
-    if(upcoming) d.querySelector('.rem').onclick=ev=>{ev.stopPropagation(); toggleReminder(st,p);};
-    d.onclick=ev=>{ev.stopPropagation(); st.now=p[1]; st.pct=p[3]||10; renderStage(); renderStations(); log('EPG: „'+p[1]+'“ → právě běží na '+st.name);};
-    d.onmouseenter=()=>scheduleProgDetail(d,st,rows,idx);
-    d.onmouseleave=()=>hideProgDetail();
-    e.appendChild(d);
-  });
-  let otherShown = 0;
-  const appendOtherDemo = (container, ost, targetSrc, oRows) => {
-    const hd = document.createElement('div');
-    hd.className = 'epOtherHead';
-    hd.innerHTML = '<span class="epOtherIni" style="background:' + (ost.color || '#334155') + '">' + (ost.ini || ost.name.slice(0, 2)) + '</span><span>' + ost.name + '</span>';
-    container.appendChild(hd);
-    oRows.forEach((p, idx) => {
-      otherShown++;
-      const d = document.createElement('div'); d.className = 'ep' + (p[2] ? ' now' : '');
-      d.innerHTML = '<span class="t">' + p[0] + '</span><span class="ti">' + p[1] + (p[2] ? '<span class="live">LIVE</span>' : '') + '</span>'
-        + (p[2] ? '<div class="epProg"><div style="width:' + (p[3] || 10) + '%"></div></div>' : '');
-      d.onclick = ev => {
+  const renderDemoResults = (rows, otherChGroups, otherSrcGroups) => {
+    e.innerHTML='';
+    let shown=0;
+    const liveIdx = (st.epg || []).findIndex(x => !!x[2]);
+    rows.forEach((p,idx)=>{
+      shown++;
+      const origIdx = (st.epg || []).indexOf(p);
+      const d=document.createElement('div'); d.className='ep'+(p[2]?' now':'');
+      const marked = !!reminders[progKey(st,p)];
+      const recOn = !!(reminders[progKey(st,p)] && reminders[progKey(st,p)].record) || !!(activeRec[curSrc] && activeRec[curSrc].station === st.name && activeRec[curSrc].title === p[1]);
+      const upcoming = !p[2] && (liveIdx >= 0 ? origIdx > liveIdx : true);
+      const canRec = !!p[2] || upcoming;
+      const recAfterOn = !!(reminders[progKey(st,p)] && reminders[progKey(st,p)].recordAfter);
+      const dlSvg = '<svg viewBox="0 0 16 16" width="13" height="13" style="vertical-align:-2px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M8 2v8m-3-3 3 3 3-3M3 13h10"/></svg>';
+      d.innerHTML='<span class="t">'+p[0]+'</span><span class="ti">'+highlightMatchDemo(p[1], epgFilterDemo)+(p[2]?'<span class="live">LIVE</span>':'')+'</span>'
+        +(canRec?'<span class="recBtn'+(recAfterOn?' on':'')+' recAfter" title="Stáhnout z archivu po skončení pořadu (PC může mezitím spát)">'+dlSvg+'</span>':'')
+        +(canRec?'<span class="recBtn'+(recOn?' on':'')+' recLive" title="'+(p[2]?'Nahrávat hned':'Naplánovat nahrávání')+'">⏺</span>':'')
+        +(upcoming?'<span class="rem'+(marked?' on':'')+'" title="Připomenout a v daný čas přepnout">⏰</span>':'')
+        +(p[2]?'<div class="epProg"><div style="width:'+(p[3]||10)+'%'+'"></div></div>':'');
+      if(canRec) d.querySelector('.recAfter').onclick=ev=>{
         ev.stopPropagation();
-        curSrc = targetSrc;
-        const si = (DATA[targetSrc] || []).indexOf(ost);
-        if (si >= 0) selIdx = si;
-        ost.now = p[1]; ost.pct = p[3] || 10;
-        renderAll();
-        log('EPG: „' + p[1] + '“ → ' + ost.name);
+        const k=progKey(st,p);
+        if(reminders[k]&&reminders[k].recordAfter){ delete reminders[k].recordAfter; if(!reminders[k].record&&!reminders[k].pinned) delete reminders[k]; log('📥 stažení po skončení zrušeno: '+p[1]); }
+        else { const prev=reminders[k]||{}; reminders[k]={...prev, t:p[0], title:p[1], src:curSrc, station:st.name, recordAfter:true}; log('📥 naplánováno stažení z archivu po skončení: '+st.name+' – '+p[1]); }
+        saveReminders(); renderAll();
       };
-      d.onmouseenter = () => scheduleProgDetail(d, ost, oRows, idx);
-      d.onmouseleave = () => hideProgDetail();
-      container.appendChild(d);
+      if(canRec) d.querySelector('.recLive').onclick=ev=>{ev.stopPropagation(); toggleRecordFor(st,p);};
+      if(upcoming) d.querySelector('.rem').onclick=ev=>{ev.stopPropagation(); toggleReminder(st,p);};
+      d.onclick=ev=>{ev.stopPropagation(); st.now=p[1]; st.pct=p[3]||10; renderStage(); renderStations(); log('EPG: „'+p[1]+'“ → právě běží na '+st.name);};
+      d.onmouseenter=()=>scheduleProgDetail(d,st,rows,idx);
+      d.onmouseleave=()=>hideProgDetail();
+      e.appendChild(d);
     });
-  };
-  if (q && q.length >= 2) {
-    if (epgSearchOtherChDemo) {
-      for (const ost of (DATA[curSrc] || [])) {
-        if (ost.name === st.name) continue;
-        const oRows = (ost.epg || []).filter(p => normName(p[1]).includes(q));
-        if (oRows.length) appendOtherDemo(e, ost, curSrc, oRows);
-      }
+    let otherShown = 0;
+    const appendOtherDemo = (container, ost, targetSrc, oRows) => {
+      const hd = document.createElement('div');
+      hd.className = 'epOtherHead';
+      hd.innerHTML = '<span class="epOtherIni" style="background:' + (ost.color || '#334155') + '">' + (ost.ini || ost.name.slice(0, 2)) + '</span><span>' + ost.name + '</span>';
+      container.appendChild(hd);
+      oRows.forEach((p, idx) => {
+        otherShown++;
+        const d = document.createElement('div'); d.className = 'ep' + (p[2] ? ' now' : '');
+        d.innerHTML = '<span class="t">' + p[0] + '</span><span class="ti">' + highlightMatchDemo(p[1], epgFilterDemo) + (p[2] ? '<span class="live">LIVE</span>' : '') + '</span>'
+          + (p[2] ? '<div class="epProg"><div style="width:' + (p[3] || 10) + '%"></div></div>' : '');
+        d.onclick = ev => {
+          ev.stopPropagation();
+          curSrc = targetSrc;
+          const si = (DATA[targetSrc] || []).indexOf(ost);
+          if (si >= 0) selIdx = si;
+          ost.now = p[1]; ost.pct = p[3] || 10;
+          renderAll();
+          log('EPG: „' + p[1] + '“ → ' + ost.name);
+        };
+        d.onmouseenter = () => scheduleProgDetail(d, ost, oRows, idx);
+        d.onmouseleave = () => hideProgDetail();
+        container.appendChild(d);
+      });
+    };
+    for (const m of otherChGroups) appendOtherDemo(e, m.ost, curSrc, m.oRows);
+    for (const sg of otherSrcGroups) {
+      const grp = document.createElement('div');
+      grp.className = 'epSrcGroup';
+      const sh = document.createElement('div');
+      sh.className = 'epSrcHead';
+      sh.innerHTML = '<img class="epSrcLogo" src="' + sg.s.logo + '" alt="' + sg.s.name + '"><span>' + sg.s.name + '</span>';
+      grp.appendChild(sh);
+      for (const m of sg.matches) appendOtherDemo(grp, m.ost, sg.s.id, m.oRows);
+      e.appendChild(grp);
     }
-    if (epgSearchOtherSrcDemo) {
-      for (const s of SOURCES) {
-        if (s.id === curSrc) continue;
-        const matches = [];
-        for (const ost of (DATA[s.id] || [])) {
-          const oRows = (ost.epg || []).filter(p => normName(p[1]).includes(q));
-          if (oRows.length) matches.push({ ost, oRows });
-        }
-        if (!matches.length) continue;
-        const grp = document.createElement('div');
-        grp.className = 'epSrcGroup';
-        const sh = document.createElement('div');
-        sh.className = 'epSrcHead';
-        sh.innerHTML = '<img class="epSrcLogo" src="' + s.logo + '" alt="' + s.name + '"><span>' + s.name + '</span>';
-        grp.appendChild(sh);
-        for (const m of matches) appendOtherDemo(grp, m.ost, s.id, m.oRows);
-        e.appendChild(grp);
-      }
+    if (!shown && !otherShown) e.innerHTML='<div class="emptyNote">Nic neodpovídá filtru.</div>';
+  };
+  if (!q) {
+    cancelEpgDemoSearch();
+    renderDemoResults(st.epg || [], [], []);
+    return;
+  }
+  cancelEpgDemoSearch();
+  const jobId = ++epgDemoSearchJobId;
+  const tasks = [{ kind: 'cur', ost: st }];
+  if (q.length >= 2 && epgSearchOtherChDemo) {
+    for (const ost of (DATA[curSrc] || [])) { if (ost.name !== st.name) tasks.push({ kind: 'otherCh', ost }); }
+  }
+  if (q.length >= 2 && epgSearchOtherSrcDemo) {
+    for (const s of SOURCES) {
+      if (s.id === curSrc) continue;
+      for (const ost of (DATA[s.id] || [])) tasks.push({ kind: 'otherSrc', s, ost });
     }
   }
-  if (!shown && !otherShown) e.innerHTML='<div class="emptyNote">Nic neodpovídá filtru.</div>';
+  let curRows = [];
+  const otherChGroups = [];
+  const otherSrcMap = new Map();
+  let ti = 0;
+  setEpgDemoProg(true, 10);
+  const stepDemo = () => {
+    epgDemoSearchT = null;
+    if (jobId !== epgDemoSearchJobId) return;
+    const chunk = Math.max(1, Math.ceil(tasks.length / 6));
+    for (let k = 0; k < chunk && ti < tasks.length; k++, ti++) {
+      const tk = tasks[ti];
+      const matched = (tk.ost.epg || []).filter(p => epgMatchesDemo(p, q, epgSearchDescDemo));
+      if (tk.kind === 'cur') curRows = matched;
+      else if (matched.length) {
+        if (tk.kind === 'otherCh') otherChGroups.push({ ost: tk.ost, oRows: matched });
+        else {
+          if (!otherSrcMap.has(tk.s.id)) otherSrcMap.set(tk.s.id, { s: tk.s, matches: [] });
+          otherSrcMap.get(tk.s.id).matches.push({ ost: tk.ost, oRows: matched });
+        }
+      }
+    }
+    setEpgDemoProg(true, Math.round((ti / Math.max(1, tasks.length)) * 100));
+    if (ti < tasks.length) {
+      epgDemoSearchT = setTimeout(stepDemo, 18);
+    } else {
+      epgDemoProgHideT = setTimeout(() => setEpgDemoProg(false, 0), 180);
+      renderDemoResults(curRows, otherChGroups, [...otherSrcMap.values()]);
+    }
+  };
+  epgDemoSearchT = setTimeout(stepDemo, 12);
 }
 document.addEventListener('input',e=>{
-  if(e.target&&e.target.id==='epgFilterDemo'){ epgFilterDemo=e.target.value; syncEpgFilterDemoClear(); renderEpg(DATA[curSrc][selIdx]); }
+  if(e.target&&e.target.id==='epgFilterDemo'){ epgFilterDemo=e.target.value; syncEpgFilterDemoClear(); refreshProgDetailHighlight(); renderEpg(DATA[curSrc][selIdx]); }
 });
 document.getElementById('epgFilterDemoClear').onclick=()=>{
   const fi=document.getElementById('epgFilterDemo'); fi.value=''; epgFilterDemo='';
-  syncEpgFilterDemoClear(); renderEpg(DATA[curSrc][selIdx]); fi.focus();
+  syncEpgFilterDemoClear(); refreshProgDetailHighlight(); renderEpg(DATA[curSrc][selIdx]); fi.focus();
 };
 /* klik vs dvojklik */
 let clickTimer=null;
@@ -2183,8 +2311,15 @@ function scheduleProgDetail(row,st,rows,idx){
   hideProgDetail();
   progDetailT=setTimeout(()=>showProgDetail(row,st,rows,idx),300);
 }
+let progDetailRaw = null;
+function refreshProgDetailHighlight(){
+  const pop = document.getElementById('progDetail');
+  if(!pop || !pop.classList.contains('on') || !progDetailRaw) return;
+  document.getElementById('pdTitle').innerHTML = highlightMatchDemo(progDetailRaw.title, epgFilterDemo);
+  document.getElementById('pdDesc').innerHTML = highlightMatchDemo(progDetailRaw.desc, epgFilterDemo);
+}
 function hideProgDetail(){
-  clearTimeout(progDetailT); progDetailT=null;
+  clearTimeout(progDetailT); progDetailT=null; progDetailRaw=null;
   document.getElementById('progDetail').classList.remove('on');
 }
 function showProgDetail(row,st,rows,idx){
@@ -2194,13 +2329,15 @@ function showProgDetail(row,st,rows,idx){
   const img=(curSrc==='oneplay'?DEMO_IMG[title]:null)||null;
   const imgEl=document.getElementById('pdImg');
   if(img){ imgEl.src=img; imgEl.style.display=''; } else { imgEl.removeAttribute('src'); imgEl.style.display='none'; }
-  document.getElementById('pdTitle').textContent=title;
+  const descTxt=DEMO_DESC[title]||('Pořad „'+title+'“ ('+p[0]+'). Podrobnosti (herci, rok, žánr) poskytne EPG zdroje.');
+  progDetailRaw = { title, desc: descTxt };
+  document.getElementById('pdTitle').innerHTML=highlightMatchDemo(title, epgFilterDemo);
   document.getElementById('pdMeta').textContent=st.name+' · '+srcOf().name;
   document.getElementById('pdTime').innerHTML=p[0]+(end?' – '+end:'')+(live?'<span class="live">ŽIVĚ</span>':'');
   const bar=document.getElementById('pdBar');
   if(live){ bar.style.display=''; document.getElementById('pdBarFill').style.width=pct+'%'; }
   else bar.style.display='none';
-  document.getElementById('pdDesc').textContent=DEMO_DESC[title]||('Pořad „'+title+'“ ('+p[0]+'). Podrobnosti (herci, rok, žánr) poskytne EPG zdroje.');
+  document.getElementById('pdDesc').innerHTML=highlightMatchDemo(descTxt, epgFilterDemo);
   const pop=document.getElementById('progDetail');
   pop.classList.add('on');
   const panelW=document.getElementById('panelL').offsetWidth||310;

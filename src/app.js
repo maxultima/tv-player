@@ -37,7 +37,7 @@ try {
 const invoke = hasTauri ? ipcInvoke : null;
 
 const $ = (s) => document.querySelector(s);
-const stage = $('#stage'), video = $('#video'), noiseCanvas = $('#noise');
+const stage = $('#stage'), video = $('#video');
 const errToast = $('#errToast');
 
 function log(msg, level = 'INFO', tag = 'APP') {
@@ -914,51 +914,6 @@ function watchWinState() {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveWinStateNow(); });
 }
 
-// ---------- CRT sum ----------
-const nctx = noiseCanvas.getContext('2d');
-let noiseOn = true;
-function sizeNoise() {
-  // Pevne rozliseni sumu skalu CSS: pri resize okna se canvas nemaze,
-  // takze neproblikne pozadi (vzdy video nebo static).
-  noiseCanvas.width = 480;
-  noiseCanvas.height = 270;
-}
-function drawNoise() {
-  if (!noiseOn) return;
-  const w = noiseCanvas.width, h = noiseCanvas.height;
-  const img = nctx.createImageData(w, h);
-  const d = img.data;
-  for (let i = 0; i < d.length; i += 4) {
-    const v = (Math.random() * 255) | 0;
-    d[i] = v; d[i + 1] = v; d[i + 2] = v; d[i + 3] = 255;
-  }
-  nctx.putImageData(img, 0, 0);
-}
-setInterval(() => { if (noiseOn && !document.hidden) drawNoise(); }, 90);
-// Hum bary: nahodne kazdych 4-15 s se objevi 0-2 pasy putujici zdola nahoru (jen pres sum).
-function humShow(el) {
-  const dur = 6000 + Math.random() * 4000;
-  el.style.display = 'block';
-  const a = el.animate(
-    [{ transform: 'translateY(105vh)' }, { transform: 'translateY(-160px)' }],
-    { duration: dur, easing: 'linear' });
-  a.onfinish = () => { el.style.display = 'none'; };
-}
-function humSchedule() {
-  setTimeout(() => {
-    if (noiseOn && !document.hidden) {
-      const r = Math.random();
-      const n = r < 0.25 ? 0 : (r < 0.65 ? 1 : 2);
-      const bars = [document.getElementById('humbar1'), document.getElementById('humbar2')];
-      for (let i = 0; i < n; i++) {
-        const el = bars[i];
-        if (el) setTimeout(() => { if (noiseOn) humShow(el); }, i * 2500);
-      }
-    }
-    humSchedule();
-  }, 4000 + Math.random() * 11000);
-}
-humSchedule();
 // Detekce probuzeni ze sleepu + obecna detekce vypadku site s opakovany pokusem o pripojeni.
 let lastTick = Date.now(), recovering = false, pendingWake = null;
 let netOffline = false, netPollT = null, netAttempt = 0, netCountdown = 5, netProbing = false;
@@ -999,7 +954,6 @@ function enterOffline(reason) {
   netAttempt = 1;
   netCountdown = 5;
   netProbing = false;
-  noiseOn = true;
   document.body.classList.add('offline');
   updateOfflineMeta();
   log('výpadek sítě (' + reason + ') — zkouším se znovu připojit…');
@@ -1017,7 +971,7 @@ function exitOffline() {
   netOffline = false;
   clearInterval(netPollT); netPollT = null;
   document.body.classList.remove('offline');
-  if (video.classList.contains('on')) { noiseOn = false; syncStageVideo(); }
+  if (video.classList.contains('on')) { syncStageVideo(); }
   log('síť obnovena — spouštím obnovu…');
   diag('exitOffline()');
   wakeRecovery('net-back');
@@ -1128,7 +1082,7 @@ setInterval(() => {
       window.__pausedImgRetry = Date.now();
       const pst = currentStation();
       if (pst) fetchStreamUrl(pst).then((url) => {
-        if (url && paused && !video.src) { video.src = url; video.classList.add('on'); noiseOn = false; syncStageVideo(); renderStage(); log('obraz připraven (pauza, dodatečně)'); }
+        if (url && paused && !video.src) { video.src = url; video.classList.add('on'); syncStageVideo(); renderStage(); log('obraz připraven (pauza, dodatečně)'); }
       }).catch(() => {});
     }
   }
@@ -1167,12 +1121,71 @@ setInterval(() => {
   }
   if (jobs.length) Promise.allSettled(jobs);
 }, 15 * 60 * 1000);
-// Pri resize ihned prekreslit: operacni system ukazuje nove odkrytou plochu
-// okna driv, nez WebView stihne prekreslit — okamzity redraw zkracuje cerny zablesk.
-window.addEventListener('resize', () => { sizeNoise(); drawNoise(); });
-
 // ---------- video engine ----------
+const STREAM_RATE_WIN_MS = 5000;
+let streamRateSamples = []; // { ts, bytes }
+let streamRateStartMs = 0;
+let streamRateTimer = null;
+function fmtStreamRate(bps) {
+  if (!Number.isFinite(bps) || bps <= 0) return '↓ 0 KB/s';
+  if (bps >= 1024 * 1024) return '↓ ' + (bps / (1024 * 1024)).toFixed(2) + ' MB/s';
+  return '↓ ' + Math.round(bps / 1024) + ' KB/s';
+}
+function recordStreamBytes(bytes) {
+  const b = Number(bytes);
+  if (!Number.isFinite(b) || b <= 0) return;
+  const now = Date.now();
+  if (!streamRateStartMs) streamRateStartMs = now;
+  streamRateSamples.push({ ts: now, bytes: b });
+  updateStreamRateUi(now);
+}
+function updateStreamRateUi(nowMs) {
+  const el = document.getElementById('streamRate');
+  if (!el) return;
+  const active = video.classList.contains('on');
+  if (!active || !streamRateStartMs) {
+    el.textContent = '';
+    el.classList.remove('on');
+    return;
+  }
+  const now = nowMs || Date.now();
+  const cutoff = now - STREAM_RATE_WIN_MS;
+  while (streamRateSamples.length && streamRateSamples[0].ts < cutoff) streamRateSamples.shift();
+  if (!document.body.classList.contains('rightOpen')) return;
+  let total = 0;
+  for (let i = 0; i < streamRateSamples.length; i++) total += streamRateSamples[i].bytes;
+  const spanSec = Math.max(1, Math.min(STREAM_RATE_WIN_MS / 1000, (now - streamRateStartMs) / 1000));
+  el.textContent = fmtStreamRate(total / spanSec);
+  el.classList.add('on');
+}
+function startStreamRateMeter() {
+  streamRateSamples = [];
+  streamRateStartMs = Date.now();
+  if (!streamRateTimer) {
+    streamRateTimer = setInterval(() => {
+      if (!document.hidden && video.classList.contains('on') && document.body.classList.contains('rightOpen')) {
+        updateStreamRateUi();
+      }
+    }, 1000);
+  }
+}
+function resetStreamRateMeter() {
+  streamRateSamples = [];
+  streamRateStartMs = 0;
+  if (streamRateTimer) { clearInterval(streamRateTimer); streamRateTimer = null; }
+  const el = document.getElementById('streamRate');
+  if (el) { el.textContent = ''; el.classList.remove('on'); }
+}
+function attachDashRateMeter(player) {
+  const evs = window.dashjs?.MediaPlayer?.events;
+  if (!player || !evs || !evs.FRAGMENT_LOADING_COMPLETED) return;
+  player.on(evs.FRAGMENT_LOADING_COMPLETED, (ev) => {
+    const b = ev?.response?.byteLength || ev?.request?.bytesLoaded || ev?.request?.bytesTotal || 0;
+    if (b > 0) recordStreamBytes(b);
+  });
+}
 function stopStream() {
+  resetStreamRateMeter();
   vtvSsmStop().catch(() => {});
   try { video.pause(); } catch {}
   video.removeAttribute('src');
@@ -1187,13 +1200,6 @@ function stopStream() {
 function syncStageVideo() {
   const hasVid = video.classList.contains('on');
   stage.classList.toggle('hasvideo', hasVid);
-  if (!hasVid) { noiseOn = true; }
-  if (hasVid) {
-    for (const id of ['humbar1', 'humbar2']) {
-      const el = document.getElementById(id);
-      if (el) { try { el.getAnimations().forEach((a) => a.cancel()); } catch {} el.style.display = 'none'; }
-    }
-  }
 }
 async function playStation(st, quiet = true, startPos = -1) {
   stopStream();
@@ -1243,20 +1249,31 @@ async function playStation(st, quiet = true, startPos = -1) {
         });
       }
       dashPlayer.initialize(video, url, !paused);
+      attachDashRateMeter(dashPlayer);
+      startStreamRateMeter();
       log('DASH+Widevine(SSM) → ' + st.name + ' (cert=' + (vtvCfg?.wvCertB64 ? vtvCfg.wvCertB64.length : 0) + ')', 'INFO', 'VTV');
     } else if (st.drm && window.dashjs) {
       dashPlayer = dashjs.MediaPlayer().create();
       dashPlayer.setProtectionData({ 'com.widevine.alpha': { serverURL: st.drm.licenceUrl } });
       dashPlayer.initialize(video, url, !paused);
+      attachDashRateMeter(dashPlayer);
+      startStreamRateMeter();
       log('DASH+Widevine → ' + st.name);
     } else if (/\.mpd(\?|$)/i.test(url) && window.dashjs) {
       dashPlayer = dashjs.MediaPlayer().create();
       dashPlayer.initialize(video, url, !paused);
+      attachDashRateMeter(dashPlayer);
+      startStreamRateMeter();
       log('DASH → ' + st.name);
     } else if (window.Hls && Hls.isSupported() && /\.m3u8(\?|$)/i.test(url)) {
       hls = new Hls({ enableWorker: true, startPosition: startPos });
       hls.loadSource(url);
       hls.attachMedia(video);
+      startStreamRateMeter();
+      hls.on(Hls.Events.FRAG_LOADED, (_e, data) => {
+        const b = data?.frag?.stats?.loaded || data?.payload?.byteLength || 0;
+        if (b > 0) recordStreamBytes(b);
+      });
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (!data?.fatal) return;
         log('HLS chyba: ' + (data.details || 'fatal'));
@@ -1277,7 +1294,6 @@ async function playStation(st, quiet = true, startPos = -1) {
       log('nativní video → ' + st.name);
     }
     everPlayed = true;
-    noiseOn = false;
     video.classList.add('on');
     syncStageVideo();
     persistSoon();
@@ -1289,7 +1305,6 @@ async function playStation(st, quiet = true, startPos = -1) {
 }
 function renderIdle() {
   stopStream();
-  noiseOn = true;
   renderStage();
 }
 
@@ -1641,10 +1656,129 @@ function updateBottomClock() {
   if (inTimeshift) syncTimeshiftUi();
 }
 updateBottomClock();
-setInterval(() => { if (!document.hidden) updateBottomClock(); }, 1000);
+setInterval(() => { if (!document.hidden && document.body.classList.contains('bottomOpen')) updateBottomClock(); }, 1000);
 let epgFilter = '';
 let epgSearchOtherCh = true;
 let epgSearchOtherSrc = false;
+let epgSearchDesc = false;
+const epgSearchVer = { sltv: 0, oneplay: 0, vodafone: 0 };
+const epgWorkerSyncedVer = { sltv: -1, oneplay: -1, vodafone: -1 };
+let epgSearchWorker = null;
+let epgSearchJobId = 0;
+let epgSearchDoneCb = null;
+let epgSearchHideT = null;
+function invalidateEpgSearch(src) {
+  if (src) {
+    if (epgSearchVer[src] !== undefined) epgSearchVer[src]++;
+  } else {
+    for (const k of Object.keys(epgSearchVer)) epgSearchVer[k]++;
+  }
+}
+function setEpgSearchProgress(active, pct) {
+  clearTimeout(epgSearchHideT);
+  epgSearchHideT = null;
+  const bar = document.getElementById('epgSearchProg');
+  const fill = document.getElementById('epgSearchProgFill');
+  if (!bar || !fill) return;
+  if (active) {
+    bar.classList.add('on');
+    fill.style.width = Math.max(0, Math.min(100, pct || 0)) + '%';
+  } else {
+    bar.classList.remove('on');
+    if (pct === 0) fill.style.width = '0%';
+  }
+}
+function cancelEpgSearch() {
+  epgSearchJobId++;
+  epgSearchDoneCb = null;
+  if (epgSearchWorker) {
+    try { epgSearchWorker.postMessage({ type: 'cancel' }); } catch {}
+  }
+  setEpgSearchProgress(false, 0);
+}
+function getEpgSearchWorker() {
+  if (epgSearchWorker) return epgSearchWorker;
+  try {
+    const w = new Worker(new URL('./lib/epg-search.worker.js', import.meta.url));
+    w.onmessage = (ev) => {
+      const msg = ev.data;
+      if (!msg || msg.jobId !== epgSearchJobId) return;
+      if (msg.type === 'progress') {
+        const pct = msg.total > 0 ? Math.round((msg.done / msg.total) * 100) : 100;
+        setEpgSearchProgress(true, Math.max(5, pct));
+      } else if (msg.type === 'done') {
+        setEpgSearchProgress(true, 100);
+        epgSearchHideT = setTimeout(() => setEpgSearchProgress(false, 0), 180);
+        const cb = epgSearchDoneCb;
+        epgSearchDoneCb = null;
+        if (cb) cb(msg);
+      }
+    };
+    w.onerror = () => {
+      try { w.terminate(); } catch {}
+      if (epgSearchWorker === w) epgSearchWorker = null;
+      setEpgSearchProgress(false, 0);
+    };
+    epgSearchWorker = w;
+    return w;
+  } catch {
+    return null;
+  }
+}
+function syncWorkerSources(srcIds, w) {
+  for (const sid of srcIds) {
+    if (epgWorkerSyncedVer[sid] === epgSearchVer[sid]) continue;
+    const list = liveChannels[sid] || [];
+    const chData = [];
+    for (let i = 0; i < list.length; i++) {
+      const ch = list[i];
+      const rows = epgRowsFor(ch);
+      if (!rows || !rows.length) continue;
+      const slim = new Array(rows.length);
+      for (let r = 0; r < rows.length; r++) {
+        const p = rows[r];
+        slim[r] = { i: r, t: p.title || '', d: p.desc || '', e2: p.e2 || 0, ts: canTimeshiftProg(ch, p) };
+      }
+      chData.push({ ck: chanKeyOf(ch), rows: slim });
+    }
+    w.postMessage({ type: 'sync', src: sid, channels: chData });
+    epgWorkerSyncedVer[sid] = epgSearchVer[sid];
+  }
+}
+function escHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function highlightMatch(text, rawQuery) {
+  const src = String(text || '');
+  const q = normName(rawQuery);
+  if (!q) return escHtml(src);
+  let norm = '';
+  const map = [];
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i].normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    for (let j = 0; j < ch.length; j++) { norm += ch[j]; map.push(i); }
+  }
+  if (!norm) return escHtml(src);
+  let out = '', pos = 0, from = 0;
+  while (from < norm.length) {
+    const hit = norm.indexOf(q, from);
+    if (hit < 0) break;
+    const origStart = map[hit];
+    const origEnd = map[hit + q.length - 1] + 1;
+    if (origStart > pos) out += escHtml(src.slice(pos, origStart));
+    out += '<mark class="epgHl">' + escHtml(src.slice(origStart, origEnd)) + '</mark>';
+    pos = origEnd;
+    from = hit + q.length;
+  }
+  if (pos < src.length) out += escHtml(src.slice(pos));
+  return out;
+}
+function epgMatchesQuery(p, q, inDesc) {
+  if (!q) return true;
+  if (p && p.title && normName(p.title).includes(q)) return true;
+  if (inDesc && p && p.desc && normName(p.desc).includes(q)) return true;
+  return false;
+}
 function syncEpgFilterClear() {
   const fi = document.getElementById('epgFilter'), b = document.getElementById('epgFilterClear');
   if (fi && b) b.classList.toggle('on', !!fi.value);
@@ -1654,8 +1788,10 @@ function syncEpgFilterClear() {
 function syncEpgFilterOpts() {
   const c1 = document.getElementById('epgOptOtherCh');
   const c2 = document.getElementById('epgOptOtherSrc');
+  const c3 = document.getElementById('epgOptDesc');
   if (c1) c1.checked = epgSearchOtherCh !== false;
   if (c2) c2.checked = epgSearchOtherSrc === true;
+  if (c3) c3.checked = epgSearchDesc === true;
 }
 /* ---------- Ulozena hlidani v EPG (scan plany + notifikace) ---------- */
 let epgWatches = [];
@@ -1663,10 +1799,12 @@ const activeWatchNotifs = new Map(); // watchId|progKey -> { card, watchId }
 const SNOOZE_24H_MS = 24 * 60 * 60 * 1000;
 function describeWatchScope(w) {
   const srcName = (SOURCES.find((s) => s.id === w.src) || {}).name || w.src;
-  if (w.otherCh && w.otherSrc) return t('epgWatchScopeAll');
-  if (w.otherCh) return t('epgWatchScopeSrc', { src: srcName });
-  if (w.otherSrc) return t('epgWatchScopeStOtherSrc', { st: w.station || '' });
-  return t('epgWatchScopeStOnly', { st: w.station || '', src: srcName });
+  let base;
+  if (w.otherCh && w.otherSrc) base = t('epgWatchScopeAll');
+  else if (w.otherCh) base = t('epgWatchScopeSrc', { src: srcName });
+  else if (w.otherSrc) base = t('epgWatchScopeStOtherSrc', { st: w.station || '' });
+  else base = t('epgWatchScopeStOnly', { st: w.station || '', src: srcName });
+  return w.inDesc ? (base + ' · ' + t('epgWatchScopeDesc')) : base;
 }
 function formatWatchTime(s, e2, hmT, hmE) {
   if (!s) return hmT || '';
@@ -1704,6 +1842,7 @@ function renderEpgWatches() {
       epgFilter = w.q;
       epgSearchOtherCh = !!w.otherCh;
       epgSearchOtherSrc = !!w.otherSrc;
+      epgSearchDesc = !!w.inDesc;
       syncEpgFilterOpts();
       syncEpgFilterClear();
       const st = currentStation();
@@ -1725,7 +1864,8 @@ function updateWatchModalSummary() {
   if (!pendingWatchDraft) return;
   const oCh = !!document.getElementById('wmOtherCh').checked;
   const oSrc = !!document.getElementById('wmOtherSrc').checked;
-  const draft = { ...pendingWatchDraft, otherCh: oCh, otherSrc: oSrc };
+  const inDesc = !!document.getElementById('wmInDesc').checked;
+  const draft = { ...pendingWatchDraft, otherCh: oCh, otherSrc: oSrc, inDesc };
   document.getElementById('wmSummary').innerHTML =
     '<div><b>' + t('epgWatchQueryLbl') + '</b> „' + draft.q + '“</div>' +
     '<div style="margin-top:4px;color:#cbd5e1"><b>' + t('epgWatchScopeLbl') + '</b> ' + describeWatchScope(draft) + '</div>';
@@ -1738,6 +1878,7 @@ function openEpgWatchModal() {
   pendingWatchDraft = { q, station: st ? st.name : '', chan: st ? chanKeyOf(st) : '', src: curSrc };
   document.getElementById('wmOtherCh').checked = epgSearchOtherCh !== false;
   document.getElementById('wmOtherSrc').checked = epgSearchOtherSrc === true;
+  document.getElementById('wmInDesc').checked = epgSearchDesc === true;
   updateWatchModalSummary();
   document.getElementById('epgWatchModal').classList.add('on');
 }
@@ -1748,9 +1889,10 @@ function closeEpgWatchModal() {
 (function initEpgWatchUi() {
   const btn = document.getElementById('btnEpgWatch');
   if (btn) btn.onclick = openEpgWatchModal;
-  const c1 = document.getElementById('wmOtherCh'), c2 = document.getElementById('wmOtherSrc');
+  const c1 = document.getElementById('wmOtherCh'), c2 = document.getElementById('wmOtherSrc'), c3 = document.getElementById('wmInDesc');
   if (c1) c1.onchange = updateWatchModalSummary;
   if (c2) c2.onchange = updateWatchModalSummary;
+  if (c3) c3.onchange = updateWatchModalSummary;
   const cancel = document.getElementById('btnWmCancel');
   if (cancel) cancel.onclick = closeEpgWatchModal;
   const save = document.getElementById('btnWmSave');
@@ -1764,6 +1906,7 @@ function closeEpgWatchModal() {
       src: pendingWatchDraft.src,
       otherCh: !!document.getElementById('wmOtherCh').checked,
       otherSrc: !!document.getElementById('wmOtherSrc').checked,
+      inDesc: !!document.getElementById('wmInDesc').checked,
       seen: {},
       snoozed: {},
     };
@@ -1841,6 +1984,7 @@ function showEpgWatchNotification(w, m) {
     document.body.classList.add('leftOpen');
     epgSearchOtherCh = !!w.otherCh;
     epgSearchOtherSrc = !!w.otherSrc;
+    epgSearchDesc = !!w.inDesc;
     syncEpgFilterOpts();
     const fi = document.getElementById('epgFilter');
     if (fi) fi.value = w.q;
@@ -1956,7 +2100,7 @@ function scanEpgWatches(srcFilter) {
         const rows = epgRowsFor(st) || [];
         for (const p of rows) {
           if (!p || !p.title || (p.e2 && p.e2 <= now)) continue;
-          if (!normName(p.title).includes(q)) continue;
+          if (!epgMatchesQuery(p, q, !!w.inDesc)) continue;
           const pk = remKey(sid, st, p);
           if (w.seen && w.seen[pk]) continue;
           if (w.snoozed && w.snoozed[pk] && w.snoozed[pk].until > now) continue;
@@ -1990,214 +2134,294 @@ function toggleRecordAfter(st, p, srcOverride) {
   persistSoon(); renderAll();
 }
 function renderEpg(st) {
-  hideProgDetail();
   if (st && st.vfId && authMeta.vodafone && authMeta.vodafone.logged) {
     vtvLoadChannelEpg(st).then((n) => {
       if (n > 0 && currentStation() && chanKeyOf(currentStation()) === chanKeyOf(st)) renderStage();
     }).catch(() => {});
   }
   const sameSt = (renderEpg._for === st.name);
-  if (!sameSt) { renderEpg._hasScrolled = false; renderEpg._openedFor = null; epgFilter = ''; const fi = document.getElementById('epgFilter'); if (fi) fi.value = ''; syncEpgFilterClear(); }
+  if (!sameSt) { hideProgDetail(); renderEpg._hasScrolled = false; renderEpg._openedFor = null; epgFilter = ''; const fi = document.getElementById('epgFilter'); if (fi) fi.value = ''; syncEpgFilterClear(); cancelEpgSearch(); }
   renderEpg._for = st.name;
   const e = $('#epg');
   const prevScroll = sameSt ? e.scrollTop : -1;
-  e.innerHTML = '';
   const live = epgRowsFor(st);
   const rows = live || (st.epg || []).map((p) => ({ t: p.t !== undefined ? p.t : p[0], title: p.title !== undefined ? p.title : p[1], now: !!(p.now !== undefined ? p.now : p[2]), pct: p.pct !== undefined ? p.pct : (p[3] || 10) }));
-  if (!rows.length) { e.innerHTML = '<div class="emptyNote">' + t('noEpg') + '</div>'; return; }
+  if (!rows.length) { cancelEpgSearch(); e.innerHTML = '<div class="emptyNote">' + t('noEpg') + '</div>'; return; }
   const nowMs = Date.now();
   const q = normName(epgFilter);
-  let lastDay = null;
-  let shown = 0;
-  const vis = rows.filter((p) => {
-    const isPast = p.e2 && p.e2 <= nowMs;
-    if (isPast && !canTimeshiftProg(st, p)) return false;
-    return !q || normName(p.title).includes(q);
-  });
-  let nowEl = null, playEl = null;
-  vis.forEach((p, idx) => {
-    shown++;
-    const day = p.day || (p.s ? new Date(p.s).toDateString() : null);
-    if (day && day !== lastDay) {
-      lastDay = day;
-      const sep = document.createElement('div');
-      sep.className = 'epDay';
-      sep.textContent = dayLabel(p.s || nowMs);
-      e.appendChild(sep);
-    }
-    const isNow = p.s ? (p.s <= nowMs && nowMs <= p.e2) : !!p.now;
-    const isPast = p.e2 && p.e2 <= nowMs;
-    const isTsPlaying = !!(inTimeshift && timeshiftProg && ((p.id && timeshiftProg.id && p.id === timeshiftProg.id) || (p.s && timeshiftProg.s && p.s === timeshiftProg.s && p.title === timeshiftProg.title)));
-    const isPlaying = inTimeshift ? isTsPlaying : isNow;
-    let pctBar = null;
-    if (isPlaying && p.s && p.e2 > p.s) {
-      const refMs = isTsPlaying
-        ? ((timeshiftBeginMs || p.s) + (pendingSeekSec !== null ? pendingSeekSec : (Number.isFinite(video.currentTime) ? video.currentTime : 0)) * 1000)
-        : nowMs;
-      pctBar = Math.max(0, Math.min(100, Math.round(((refMs - p.s) / (p.e2 - p.s)) * 100)));
-    }
-    const d = document.createElement('div');
-    d.className = 'ep' + (isPlaying ? ' now' : '') + (isPast ? ' past' : '');
-    if (isNow) nowEl = d;
-    if (isTsPlaying) playEl = d;
-    // Bez nativniho title tooltipu — popis ukazuje plovouci detail.
-    const marked = !!reminders[remKey(curSrc, st, p)];
-    const recOn = !!(reminders[remKey(curSrc, st, p)] && reminders[remKey(curSrc, st, p)].record) || !!(activeRec[curSrc] && activeRec[curSrc].station === st.name && activeRec[curSrc].title === p.title);
-    // Zvonecek jen u poradu, ktere jeste nezacaly (bezici/minule naplanovat nejde).
-    const upcoming = p.s && p.s > nowMs;
-    const canRecLive = !st.drm && (isNow || upcoming);
-    const canDl = !st.drm && canTimeshiftProg(st, p) && (isPast || isNow || upcoming);
-    const recAfterOn = !!(reminders[remKey(curSrc, st, p)] && reminders[remKey(curSrc, st, p)].recordAfter) || (isPast && !!(activeRec[curSrc] && activeRec[curSrc].station === st.name && activeRec[curSrc].title === p.title));
-    d.innerHTML = '<span class="t">' + p.t + '</span><span class="ti">' + p.title + (isTsPlaying ? '<span class="live">' + t('timeshift') + '</span>' : (isNow ? '<span class="live">' + t('live') + '</span>' : '')) + '</span>'
-      + (canDl ? '<span class="recBtn' + (recAfterOn ? ' on' : '') + ' recAfter" title="' + (isPast ? 'Stáhnout z archivu' : 'Stáhnout z archivu po skončení pořadu (PC může mezitím spát)') + '">' + DL_SVG + '</span>' : '')
-      + (canRecLive ? '<span class="recBtn' + (recOn ? ' on' : '') + ' recLive" title="' + (isNow ? 'Nahrávat hned' : 'Naplánovat nahrávání') + '">⏺</span>' : '')
-      + (upcoming ? '<span class="rem' + (marked ? ' on' : '') + '" title="Připomenout a v daný čas přepnout">⏰</span>' : '')
-      + (isPlaying && pctBar !== null ? '<div class="epProg"><div style="width:' + pctBar + '%"></div></div>' : '');
-    if (canDl) d.querySelector('.recAfter').onclick = (ev) => {
-      ev.stopPropagation();
-      if (isPast) toggleRecordFor(st, p, curSrc, true);
-      else toggleRecordAfter(st, p);
-    };
-    if (canRecLive) d.querySelector('.recLive').onclick = (ev) => { ev.stopPropagation(); toggleRecordFor(st, p, curSrc, false); };
-    if (upcoming) d.querySelector('.rem').onclick = (ev) => { ev.stopPropagation(); toggleReminder(st, p); };
-    d.onclick = (ev) => {
-      ev.stopPropagation();
-      if (isPast && canTimeshiftProg(st, p)) {
-        playFromStart(st, p, 0);
-        return;
-      }
-      if (video.classList.contains('on')) {
-        if (paused) { paused = false; resumeLive(); stage.classList.remove('paused'); persistSoon(); }
-        return;
-      }
-      applySelection(false); log('stanice → ' + st.name + ' („' + p.title + '“)');
-    };
-    d.onmouseenter = () => scheduleProgDetail(d, st, vis, idx);
-    d.onmouseleave = () => hideProgDetail();
-    e.appendChild(d);
-  });
-  let otherShown = 0;
-  const appendOtherChannel = (container, ost, targetSrc, oVis) => {
-    const hd = document.createElement('div');
-    hd.className = 'epOtherHead';
-    const icoHtml = ost.logo
-      ? '<img class="epOtherLogo" src="' + ost.logo + '" alt="">'
-      : '<span class="epOtherIni" style="background:' + (ost.color || '#334155') + '">' + (ost.ini || ost.name.slice(0, 2)) + '</span>';
-    hd.innerHTML = icoHtml + '<span>' + ost.name + '</span>';
-    container.appendChild(hd);
-    let oLastDay = null;
-    oVis.forEach((p, idx) => {
-      otherShown++;
+
+  const renderMatches = (vis, otherChGroups, otherSrcGroups) => {
+    e.innerHTML = '';
+    let lastDay = null;
+    let shown = 0;
+    let nowEl = null, playEl = null;
+    vis.forEach((p, idx) => {
+      shown++;
       const day = p.day || (p.s ? new Date(p.s).toDateString() : null);
-      if (day && day !== oLastDay) {
-        oLastDay = day;
+      if (day && day !== lastDay) {
+        lastDay = day;
         const sep = document.createElement('div');
         sep.className = 'epDay';
         sep.textContent = dayLabel(p.s || nowMs);
-        container.appendChild(sep);
+        e.appendChild(sep);
       }
       const isNow = p.s ? (p.s <= nowMs && nowMs <= p.e2) : !!p.now;
       const isPast = p.e2 && p.e2 <= nowMs;
-      const pctLive = p.s && p.e2 > p.s ? Math.max(0, Math.min(100, Math.round(((nowMs - p.s) / (p.e2 - p.s)) * 100))) : null;
+      const isTsPlaying = !!(inTimeshift && timeshiftProg && ((p.id && timeshiftProg.id && p.id === timeshiftProg.id) || (p.s && timeshiftProg.s && p.s === timeshiftProg.s && p.title === timeshiftProg.title)));
+      const isPlaying = inTimeshift ? isTsPlaying : isNow;
+      let pctBar = null;
+      if (isPlaying && p.s && p.e2 > p.s) {
+        const refMs = isTsPlaying
+          ? ((timeshiftBeginMs || p.s) + (pendingSeekSec !== null ? pendingSeekSec : (Number.isFinite(video.currentTime) ? video.currentTime : 0)) * 1000)
+          : nowMs;
+        pctBar = Math.max(0, Math.min(100, Math.round(((refMs - p.s) / (p.e2 - p.s)) * 100)));
+      }
       const d = document.createElement('div');
-      d.className = 'ep' + (isNow ? ' now' : '') + (isPast ? ' past' : '');
-      const marked = !!reminders[remKey(targetSrc, ost, p)];
-      const recOn = !!(reminders[remKey(targetSrc, ost, p)] && reminders[remKey(targetSrc, ost, p)].record) || !!(activeRec[targetSrc] && activeRec[targetSrc].station === ost.name && activeRec[targetSrc].title === p.title);
+      d.className = 'ep' + (isPlaying ? ' now' : '') + (isPast ? ' past' : '');
+      if (isNow) nowEl = d;
+      if (isTsPlaying) playEl = d;
+      // Bez nativniho title tooltipu — popis ukazuje plovouci detail.
+      const marked = !!reminders[remKey(curSrc, st, p)];
+      const recOn = !!(reminders[remKey(curSrc, st, p)] && reminders[remKey(curSrc, st, p)].record) || !!(activeRec[curSrc] && activeRec[curSrc].station === st.name && activeRec[curSrc].title === p.title);
+      // Zvonecek jen u poradu, ktere jeste nezacaly (bezici/minule naplanovat nejde).
       const upcoming = p.s && p.s > nowMs;
-      const canRecLive = !ost.drm && (isNow || upcoming);
-      const canDl = !ost.drm && canTimeshiftProg(ost, p) && (isPast || isNow || upcoming);
-      const recAfterOn = !!(reminders[remKey(targetSrc, ost, p)] && reminders[remKey(targetSrc, ost, p)].recordAfter) || (isPast && !!(activeRec[targetSrc] && activeRec[targetSrc].station === ost.name && activeRec[targetSrc].title === p.title));
-      d.innerHTML = '<span class="t">' + p.t + '</span><span class="ti">' + p.title + (isNow ? '<span class="live">LIVE</span>' : '') + '</span>'
+      const canRecLive = !st.drm && (isNow || upcoming);
+      const canDl = !st.drm && canTimeshiftProg(st, p) && (isPast || isNow || upcoming);
+      const recAfterOn = !!(reminders[remKey(curSrc, st, p)] && reminders[remKey(curSrc, st, p)].recordAfter) || (isPast && !!(activeRec[curSrc] && activeRec[curSrc].station === st.name && activeRec[curSrc].title === p.title));
+      d.innerHTML = '<span class="t">' + p.t + '</span><span class="ti">' + highlightMatch(p.title, epgFilter) + (isTsPlaying ? '<span class="live">' + t('timeshift') + '</span>' : (isNow ? '<span class="live">' + t('live') + '</span>' : '')) + '</span>'
         + (canDl ? '<span class="recBtn' + (recAfterOn ? ' on' : '') + ' recAfter" title="' + (isPast ? 'Stáhnout z archivu' : 'Stáhnout z archivu po skončení pořadu (PC může mezitím spát)') + '">' + DL_SVG + '</span>' : '')
         + (canRecLive ? '<span class="recBtn' + (recOn ? ' on' : '') + ' recLive" title="' + (isNow ? 'Nahrávat hned' : 'Naplánovat nahrávání') + '">⏺</span>' : '')
         + (upcoming ? '<span class="rem' + (marked ? ' on' : '') + '" title="Připomenout a v daný čas přepnout">⏰</span>' : '')
-        + (isNow && pctLive !== null ? '<div class="epProg"><div style="width:' + pctLive + '%"></div></div>' : '');
+        + (isPlaying && pctBar !== null ? '<div class="epProg"><div style="width:' + pctBar + '%"></div></div>' : '');
       if (canDl) d.querySelector('.recAfter').onclick = (ev) => {
         ev.stopPropagation();
-        if (isPast) toggleRecordFor(ost, p, targetSrc, true);
-        else toggleRecordAfter(ost, p, targetSrc);
+        if (isPast) toggleRecordFor(st, p, curSrc, true);
+        else toggleRecordAfter(st, p);
       };
-      if (canRecLive) d.querySelector('.recLive').onclick = (ev) => { ev.stopPropagation(); toggleRecordFor(ost, p, targetSrc, false); };
-      if (upcoming) d.querySelector('.rem').onclick = (ev) => { ev.stopPropagation(); toggleReminder(ost, p, targetSrc); };
+      if (canRecLive) d.querySelector('.recLive').onclick = (ev) => { ev.stopPropagation(); toggleRecordFor(st, p, curSrc, false); };
+      if (upcoming) d.querySelector('.rem').onclick = (ev) => { ev.stopPropagation(); toggleReminder(st, p); };
       d.onclick = (ev) => {
         ev.stopPropagation();
-        const targetList = liveChannels[targetSrc] || [];
-        const si = targetList.findIndex((x) => chanKeyOf(x) === chanKeyOf(ost));
-        if (targetSrc !== curSrc) curSrc = targetSrc;
-        if (si >= 0) selIdx = si;
-        if (isPast && canTimeshiftProg(ost, p)) {
-          renderAll();
-          playFromStart(ost, p, 0);
+        if (isPast && canTimeshiftProg(st, p)) {
+          playFromStart(st, p, 0);
           return;
         }
-        if (si >= 0) { renderAll(); applySelection(false); log('stanice → ' + ost.name + ' („' + p.title + '“)'); }
+        if (video.classList.contains('on')) {
+          if (paused) { paused = false; resumeLive(); stage.classList.remove('paused'); persistSoon(); }
+          return;
+        }
+        applySelection(false); log('stanice → ' + st.name + ' („' + p.title + '“)');
       };
-      d.onmouseenter = () => scheduleProgDetail(d, ost, oVis, idx);
+      d.onmouseenter = () => scheduleProgDetail(d, st, vis, idx);
       d.onmouseleave = () => hideProgDetail();
-      container.appendChild(d);
+      e.appendChild(d);
     });
+    let otherShown = 0;
+    const appendOtherChannel = (container, ost, targetSrc, oVis) => {
+      const hd = document.createElement('div');
+      hd.className = 'epOtherHead';
+      const icoHtml = ost.logo
+        ? '<img class="epOtherLogo" src="' + ost.logo + '" alt="">'
+        : '<span class="epOtherIni" style="background:' + (ost.color || '#334155') + '">' + (ost.ini || ost.name.slice(0, 2)) + '</span>';
+      hd.innerHTML = icoHtml + '<span>' + ost.name + '</span>';
+      container.appendChild(hd);
+      let oLastDay = null;
+      oVis.forEach((p, idx) => {
+        otherShown++;
+        const day = p.day || (p.s ? new Date(p.s).toDateString() : null);
+        if (day && day !== oLastDay) {
+          oLastDay = day;
+          const sep = document.createElement('div');
+          sep.className = 'epDay';
+          sep.textContent = dayLabel(p.s || nowMs);
+          container.appendChild(sep);
+        }
+        const isNow = p.s ? (p.s <= nowMs && nowMs <= p.e2) : !!p.now;
+        const isPast = p.e2 && p.e2 <= nowMs;
+        const pctLive = p.s && p.e2 > p.s ? Math.max(0, Math.min(100, Math.round(((nowMs - p.s) / (p.e2 - p.s)) * 100))) : null;
+        const d = document.createElement('div');
+        d.className = 'ep' + (isNow ? ' now' : '') + (isPast ? ' past' : '');
+        const marked = !!reminders[remKey(targetSrc, ost, p)];
+        const recOn = !!(reminders[remKey(targetSrc, ost, p)] && reminders[remKey(targetSrc, ost, p)].record) || !!(activeRec[targetSrc] && activeRec[targetSrc].station === ost.name && activeRec[targetSrc].title === p.title);
+        const upcoming = p.s && p.s > nowMs;
+        const canRecLive = !ost.drm && (isNow || upcoming);
+        const canDl = !ost.drm && canTimeshiftProg(ost, p) && (isPast || isNow || upcoming);
+        const recAfterOn = !!(reminders[remKey(targetSrc, ost, p)] && reminders[remKey(targetSrc, ost, p)].recordAfter) || (isPast && !!(activeRec[targetSrc] && activeRec[targetSrc].station === ost.name && activeRec[targetSrc].title === p.title));
+        d.innerHTML = '<span class="t">' + p.t + '</span><span class="ti">' + highlightMatch(p.title, epgFilter) + (isNow ? '<span class="live">LIVE</span>' : '') + '</span>'
+          + (canDl ? '<span class="recBtn' + (recAfterOn ? ' on' : '') + ' recAfter" title="' + (isPast ? 'Stáhnout z archivu' : 'Stáhnout z archivu po skončení pořadu (PC může mezitím spát)') + '">' + DL_SVG + '</span>' : '')
+          + (canRecLive ? '<span class="recBtn' + (recOn ? ' on' : '') + ' recLive" title="' + (isNow ? 'Nahrávat hned' : 'Naplánovat nahrávání') + '">⏺</span>' : '')
+          + (upcoming ? '<span class="rem' + (marked ? ' on' : '') + '" title="Připomenout a v daný čas přepnout">⏰</span>' : '')
+          + (isNow && pctLive !== null ? '<div class="epProg"><div style="width:' + pctLive + '%"></div></div>' : '');
+        if (canDl) d.querySelector('.recAfter').onclick = (ev) => {
+          ev.stopPropagation();
+          if (isPast) toggleRecordFor(ost, p, targetSrc, true);
+          else toggleRecordAfter(ost, p, targetSrc);
+        };
+        if (canRecLive) d.querySelector('.recLive').onclick = (ev) => { ev.stopPropagation(); toggleRecordFor(ost, p, targetSrc, false); };
+        if (upcoming) d.querySelector('.rem').onclick = (ev) => { ev.stopPropagation(); toggleReminder(ost, p, targetSrc); };
+        d.onclick = (ev) => {
+          ev.stopPropagation();
+          const targetList = liveChannels[targetSrc] || [];
+          const si = targetList.findIndex((x) => chanKeyOf(x) === chanKeyOf(ost));
+          if (targetSrc !== curSrc) curSrc = targetSrc;
+          if (si >= 0) selIdx = si;
+          if (isPast && canTimeshiftProg(ost, p)) {
+            renderAll();
+            playFromStart(ost, p, 0);
+            return;
+          }
+          if (si >= 0) { renderAll(); applySelection(false); log('stanice → ' + ost.name + ' („' + p.title + '“)'); }
+        };
+        d.onmouseenter = () => scheduleProgDetail(d, ost, oVis, idx);
+        d.onmouseleave = () => hideProgDetail();
+        container.appendChild(d);
+      });
+    };
+    for (const m of otherChGroups) appendOtherChannel(e, m.ost, curSrc, m.oVis);
+    for (const sg of otherSrcGroups) {
+      const grp = document.createElement('div');
+      grp.className = 'epSrcGroup';
+      const sh = document.createElement('div');
+      sh.className = 'epSrcHead';
+      sh.innerHTML = '<img class="epSrcLogo" src="' + sg.srcDef.logo + '" alt="' + sg.srcDef.name + '"><span>' + sg.srcDef.name + '</span>';
+      grp.appendChild(sh);
+      for (const m of sg.srcMatches) appendOtherChannel(grp, m.ost, sg.srcDef.id, m.oVis);
+      e.appendChild(grp);
+    }
+    if (!shown && !otherShown && rows.length) e.innerHTML = '<div class="emptyNote">' + t('noFilterMatch') + '</div>';
+    if (sameSt && renderEpg._hasScrolled && prevScroll >= 0) {
+      e.scrollTop = prevScroll;
+    } else {
+      const scrollEl = playEl || nowEl;
+      if (scrollEl && !q) {
+        const center = () => {
+          if (!e.clientHeight) return;
+          const target = Math.max(0, scrollEl.offsetTop - e.offsetTop - (e.clientHeight / 2) + (scrollEl.offsetHeight / 2));
+          e.scrollTop = target;
+          if (target > 0) renderEpg._hasScrolled = true;
+        };
+        center();
+        requestAnimationFrame(center);
+      }
+    }
   };
-  if (q && q.length >= 2) {
+
+  if (!q) {
+    cancelEpgSearch();
+    const vis = rows.filter((p) => {
+      const isPast = p.e2 && p.e2 <= nowMs;
+      return !(isPast && !canTimeshiftProg(st, p));
+    });
+    renderMatches(vis, [], []);
+    return;
+  }
+
+  const worker = getEpgSearchWorker();
+  if (worker && live) {
+    const jobId = ++epgSearchJobId;
+    const targetSrc = curSrc;
+    const targetCk = chanKeyOf(st);
+    const neededSrcs = (q.length >= 2 && epgSearchOtherSrc) ? SOURCES.map((s) => s.id) : [targetSrc];
+    setEpgSearchProgress(true, 5);
+    syncWorkerSources(neededSrcs, worker);
+    epgSearchDoneCb = (res) => {
+      if (curSrc !== targetSrc || !currentStation() || chanKeyOf(currentStation()) !== targetCk) return;
+      const curRows = epgRowsFor(st) || [];
+      const vis = [];
+      for (const ri of (res.curIdxs || [])) {
+        if (curRows[ri]) vis.push(curRows[ri]);
+      }
+      const otherChGroups = [];
+      if (res.otherChMatches && res.otherChMatches.length) {
+        const byCk = new Map((liveChannels[targetSrc] || []).map((c) => [chanKeyOf(c), c]));
+        for (const m of res.otherChMatches) {
+          const ost = byCk.get(m.ck);
+          if (!ost) continue;
+          const oRows = epgRowsFor(ost) || [];
+          const oVis = [];
+          for (const ri of m.idxs) { if (oRows[ri]) oVis.push(oRows[ri]); }
+          if (oVis.length) otherChGroups.push({ ost, oVis });
+        }
+      }
+      const otherSrcGroups = [];
+      if (res.otherSrcMatches) {
+        for (const srcDef of SOURCES) {
+          if (srcDef.id === targetSrc) continue;
+          const list = res.otherSrcMatches[srcDef.id];
+          if (!list || !list.length) continue;
+          const byCk = new Map((liveChannels[srcDef.id] || []).map((c) => [chanKeyOf(c), c]));
+          const srcMatches = [];
+          for (const m of list) {
+            const ost = byCk.get(m.ck);
+            if (!ost) continue;
+            const oRows = epgRowsFor(ost) || [];
+            const oVis = [];
+            for (const ri of m.idxs) { if (oRows[ri]) oVis.push(oRows[ri]); }
+            if (oVis.length) srcMatches.push({ ost, oVis });
+          }
+          if (srcMatches.length) otherSrcGroups.push({ srcDef, srcMatches });
+        }
+      }
+      renderMatches(vis, otherChGroups, otherSrcGroups);
+    };
+    worker.postMessage({
+      type: 'search',
+      jobId,
+      q,
+      curSrc: targetSrc,
+      curCk: targetCk,
+      otherCh: epgSearchOtherCh,
+      otherSrc: epgSearchOtherSrc,
+      inDesc: epgSearchDesc,
+      nowMs,
+      sources: SOURCES.map((s) => s.id),
+    });
+    return;
+  }
+
+  // Fallback kdyz Worker neni dostupny
+  const vis = rows.filter((p) => {
+    const isPast = p.e2 && p.e2 <= nowMs;
+    if (isPast && !canTimeshiftProg(st, p)) return false;
+    return epgMatchesQuery(p, q, epgSearchDesc);
+  });
+  const otherChGroups = [];
+  const otherSrcGroups = [];
+  if (q.length >= 2) {
     if (epgSearchOtherCh) {
-      const allCh = channels();
-      for (const ost of allCh) {
+      for (const ost of channels()) {
         if (ost.name === st.name) continue;
         const oRows = epgRowsFor(ost) || [];
         const oVis = oRows.filter((p) => {
           const isPast = p.e2 && p.e2 <= nowMs;
           if (isPast && !canTimeshiftProg(ost, p)) return false;
-          return normName(p.title).includes(q);
+          return epgMatchesQuery(p, q, epgSearchDesc);
         });
-        if (!oVis.length) continue;
-        appendOtherChannel(e, ost, curSrc, oVis);
+        if (oVis.length) otherChGroups.push({ ost, oVis });
       }
     }
     if (epgSearchOtherSrc) {
       for (const srcDef of SOURCES) {
         if (srcDef.id === curSrc) continue;
-        const srcCh = liveChannels[srcDef.id] || [];
         const srcMatches = [];
-        for (const ost of srcCh) {
+        for (const ost of (liveChannels[srcDef.id] || [])) {
           const oRows = epgRowsFor(ost) || [];
           const oVis = oRows.filter((p) => {
             const isPast = p.e2 && p.e2 <= nowMs;
             if (isPast && !canTimeshiftProg(ost, p)) return false;
-            return normName(p.title).includes(q);
+            return epgMatchesQuery(p, q, epgSearchDesc);
           });
           if (oVis.length) srcMatches.push({ ost, oVis });
         }
-        if (!srcMatches.length) continue;
-        const grp = document.createElement('div');
-        grp.className = 'epSrcGroup';
-        const sh = document.createElement('div');
-        sh.className = 'epSrcHead';
-        sh.innerHTML = '<img class="epSrcLogo" src="' + srcDef.logo + '" alt="' + srcDef.name + '"><span>' + srcDef.name + '</span>';
-        grp.appendChild(sh);
-        for (const m of srcMatches) appendOtherChannel(grp, m.ost, srcDef.id, m.oVis);
-        e.appendChild(grp);
+        if (srcMatches.length) otherSrcGroups.push({ srcDef, srcMatches });
       }
     }
   }
-  if (!shown && !otherShown && rows.length) e.innerHTML = '<div class="emptyNote">' + t('noFilterMatch') + '</div>';
-  if (sameSt && renderEpg._hasScrolled && prevScroll >= 0) {
-    e.scrollTop = prevScroll;
-  } else {
-    const scrollEl = playEl || nowEl;
-    if (scrollEl && !q) {
-      const center = () => {
-        if (!e.clientHeight) return;
-        const target = Math.max(0, scrollEl.offsetTop - e.offsetTop - (e.clientHeight / 2) + (scrollEl.offsetHeight / 2));
-        e.scrollTop = target;
-        if (target > 0) renderEpg._hasScrolled = true;
-      };
-      center();
-      requestAnimationFrame(center);
-    }
-  }
+  renderMatches(vis, otherChGroups, otherSrcGroups);
 }
 document.addEventListener('input', (e) => {
   if (e.target && e.target.id === 'epgFilter') {
-    epgFilter = e.target.value; syncEpgFilterClear();
+    epgFilter = e.target.value; syncEpgFilterClear(); refreshProgDetailHighlight();
     const st = currentStation(); if (st) renderEpg(st);
   }
 });
@@ -2209,6 +2433,10 @@ document.addEventListener('change', (e) => {
     const st = currentStation(); if (st) renderEpg(st);
   } else if (e.target.id === 'epgOptOtherSrc') {
     epgSearchOtherSrc = !!e.target.checked;
+    persistSoon();
+    const st = currentStation(); if (st) renderEpg(st);
+  } else if (e.target.id === 'epgOptDesc') {
+    epgSearchDesc = !!e.target.checked;
     persistSoon();
     const st = currentStation(); if (st) renderEpg(st);
   }
@@ -2673,8 +2901,9 @@ async function logoutSource(id) {
   authMeta[id] = null;
   liveChannels[id] = [];
   // Jen klice daneho zdroje (ostatni zdroje zustavaji).
-  if (id === 'sltv') epgBySrc.sltv = {};
-  if (id === 'vodafone') { epgBySrc.vodafone = {}; vtvResetSession(); }
+  if (id === 'sltv') { epgBySrc.sltv = {}; invalidateEpgSearch('sltv'); }
+  if (id === 'oneplay') { epgBySrc.oneplay = {}; invalidateEpgSearch('oneplay'); }
+  if (id === 'vodafone') { epgBySrc.vodafone = {}; vtvResetSession(); invalidateEpgSearch('vodafone'); }
   if (id === curSrc) { selIdx = 0; wantPlay = false; renderIdle(); }
   try { await vaultClear(id + '.'); } catch (e) { log('trezor: ' + e); }
   persistSoon(); persistCache();
@@ -2825,8 +3054,15 @@ function scheduleProgDetail(row, st, vis, idx) {
   hideProgDetail();
   progDetailT = setTimeout(() => showProgDetail(row, st, vis, idx), 300);
 }
+let progDetailRaw = null;
+function refreshProgDetailHighlight() {
+  const pop = document.getElementById('progDetail');
+  if (!pop || !pop.classList.contains('on') || !progDetailRaw) return;
+  document.getElementById('pdTitle').innerHTML = highlightMatch(progDetailRaw.title, epgFilter);
+  document.getElementById('pdDesc').innerHTML = highlightMatch(progDetailRaw.desc, epgFilter);
+}
 function hideProgDetail() {
-  clearTimeout(progDetailT); progDetailT = null;
+  clearTimeout(progDetailT); progDetailT = null; progDetailRaw = null;
   document.getElementById('progDetail').classList.remove('on');
 }
 function showProgDetail(row, st, vis, idx) {
@@ -2837,14 +3073,16 @@ function showProgDetail(row, st, vis, idx) {
   const img = p.img || st.logo || null;
   const imgEl = document.getElementById('pdImg');
   if (img) { imgEl.src = img; imgEl.style.display = ''; } else { imgEl.removeAttribute('src'); imgEl.style.display = 'none'; }
-  document.getElementById('pdTitle').textContent = p.title;
+  const descTxt = p.desc || t('noDesc');
+  progDetailRaw = { title: p.title || '', desc: descTxt };
+  document.getElementById('pdTitle').innerHTML = highlightMatch(progDetailRaw.title, epgFilter);
   const srcName = (SOURCES.find((s) => s.id === curSrc) || {}).name || curSrc;
   document.getElementById('pdMeta').textContent = st.name + ' · ' + srcName;
   document.getElementById('pdTime').innerHTML = p.t + (p.e ? ' – ' + p.e : '') + (isNow ? '<span class="live">ŽIVĚ</span>' : '');
   const bar = document.getElementById('pdBar');
   if (isNow && pct !== null) { bar.style.display = ''; document.getElementById('pdBarFill').style.width = pct + '%'; }
   else bar.style.display = 'none';
-  document.getElementById('pdDesc').textContent = p.desc || 'Bez popisu.';
+  document.getElementById('pdDesc').innerHTML = highlightMatch(progDetailRaw.desc, epgFilter);
   const pop = document.getElementById('progDetail');
   pop.classList.add('on');
   const panelW = document.getElementById('panelL').offsetWidth || 310;
@@ -3089,6 +3327,7 @@ document.addEventListener('mouseleave', () => {
         return;
       }
     }
+    if (video.paused || video.ended || document.hidden) return;
     if (video.requestVideoFrameCallback) rafId = video.requestVideoFrameCallback(drawFrame);
     else rafId = requestAnimationFrame(drawFrame);
   }
@@ -3122,7 +3361,7 @@ document.addEventListener('mouseleave', () => {
     if (grainOv) grainOv.style.opacity = (flt.grain / 100).toFixed(2);
   }
   setInterval(() => {
-    if (grainOv && !flt.bypass && flt.grain > 0 && !document.hidden) {
+    if (grainOv && !flt.bypass && flt.grain > 0 && !document.hidden && video.classList.contains('on') && !video.paused && !video.ended) {
       grainOv.style.backgroundPosition = ((Math.random() * 128) | 0) + 'px ' + ((Math.random() * 128) | 0) + 'px';
     }
   }, 50);
@@ -3276,6 +3515,7 @@ document.addEventListener('mouseleave', () => {
   video.addEventListener('play', kickGl);
   video.addEventListener('playing', () => { paused = false; stage.classList.remove('paused'); });
   video.addEventListener('loadeddata', kickGl);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) kickGl(); });
   applyFlt(false);
   storeGet('videoFlt').then((v) => {
     if (v && typeof v === 'object') { flt = { ...DEF, ...v }; applyFlt(false); renderProfiles(resolveActiveProfile()); }
@@ -3375,7 +3615,7 @@ document.getElementById('stationFilterClear').onclick = () => {
 };
 document.getElementById('epgFilterClear').onclick = () => {
   const fi = document.getElementById('epgFilter');
-  epgFilter = ''; if (fi) { fi.value = ''; fi.focus(); } syncEpgFilterClear();
+  epgFilter = ''; if (fi) { fi.value = ''; fi.focus(); } syncEpgFilterClear(); refreshProgDetailHighlight();
   const st = currentStation(); if (st) renderEpg(st);
 };
 // EPG popup: po chvili hoveru seznam dalsich poradu VLEVO od praveho menu.
@@ -3578,6 +3818,7 @@ function sltvLoadEpgBg() {
       });
       if (Object.keys(out).length) {
         epgBySrc.sltv = out;
+        invalidateEpgSearch('sltv');
         persistCache();
         renderAll();
       }
@@ -3844,6 +4085,7 @@ async function oneplayLoadEpg(token) {
     rows.sort((a, b) => a.s - b.s);
     if (rows.length && c.channelId) { epgBySrc.oneplay[c.channelId] = rows; n++; }
   }
+  if (n > 0) invalidateEpgSearch('oneplay');
   return n;
 }
 let opEpgP = null;
@@ -4256,6 +4498,7 @@ function vtvMergeEpg(grouped) {
     }
     n++;
   }
+  if (n > 0) invalidateEpgSearch('vodafone');
   return n;
 }
 
@@ -4325,6 +4568,7 @@ async function vtvLoadChannelEpg(st) {
     const grouped = parseVodafoneEpgObjects(objs);
     if (grouped[cid] && grouped[cid].length) {
       epgBySrc.vodafone[cid] = grouped[cid];
+      invalidateEpgSearch('vodafone');
       vtvChanEpgAt.set(cid, Date.now());
       return grouped[cid].length;
     }
@@ -4854,6 +5098,7 @@ function snapshotState() {
     everPlayed: everPlayed === true,
     epgSearchOtherCh: epgSearchOtherCh !== false,
     epgSearchOtherSrc: epgSearchOtherSrc === true,
+    epgSearchDesc: epgSearchDesc === true,
     epgWatches: Array.isArray(epgWatches) ? epgWatches : [],
   };
 }
@@ -4949,6 +5194,7 @@ async function restore() {
   const savedOtherCh = await storeGet('epgSearchOtherCh');
   epgSearchOtherCh = (savedOtherCh === null || savedOtherCh === undefined) ? true : savedOtherCh === true;
   epgSearchOtherSrc = (await storeGet('epgSearchOtherSrc')) === true;
+  epgSearchDesc = (await storeGet('epgSearchDesc')) === true;
   syncEpgFilterOpts();
   const savedWatches = await storeGet('epgWatches');
   epgWatches = Array.isArray(savedWatches)
@@ -5044,6 +5290,7 @@ async function restore() {
       const wasLogged = !!(authMeta.sltv && authMeta.sltv.logged);
       liveChannels.sltv = [];
       epgBySrc.sltv = {};
+      invalidateEpgSearch('sltv');
       authMeta.sltv = null;
       selIdx = 0;
       persistCache();
@@ -5145,7 +5392,7 @@ async function restore() {
   const st = currentStation();
   const untouched = !autoplayed && selIdx === bootSelIdx && curSrc === bootSrc;
   if (untouched && st && (st.streamUrl || st.opId || st.vfId) && !paused) applySelection(true); // tiche: watchdog to pri neuspechu zkusi znovu
-  else if (untouched && st?.streamUrl && paused) { video.src = st.streamUrl; video.classList.add('on'); noiseOn = false; syncStageVideo(); renderStage(); }
+  else if (untouched && st?.streamUrl && paused) { video.src = st.streamUrl; video.classList.add('on'); syncStageVideo(); renderStage(); }
   else if (untouched && paused && st && !st.streamUrl && ((st.opId && authMeta.oneplay && authMeta.oneplay.logged) || (st.vfId && authMeta.vodafone && authMeta.vodafone.logged) || (st.eid && authMeta.sltv && !authMeta.sltv.manual))) {
     // Pauza bez URL (cache): dohledat URL a pripravit zmrazeny obraz, nehrat. Vsechny zdroje stejne.
     video.classList.add('on'); syncStageVideo(); renderStage();
@@ -5155,7 +5402,7 @@ async function restore() {
         if (st.vfId || (st.drm && window.dashjs)) {
           await playStation(st, true);
         } else {
-          video.src = url; video.classList.add('on'); noiseOn = false; syncStageVideo(); renderStage();
+          video.src = url; video.classList.add('on'); syncStageVideo(); renderStage();
         }
         log('obraz připraven (pauza)');
       } else log('obraz v pauze se nepodařilo připravit');
@@ -5169,11 +5416,9 @@ async function restore() {
   }
 }
 
-window.addEventListener('resize', () => { sizeNoise(); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') persistNow().catch(() => {}); });
 window.addEventListener('beforeunload', () => { try { persistNow(); } catch {} storeFlush(); });
 
-sizeNoise();
 restoreWinGeometry().then(() => winInfoExfil()).catch(() => {});
 watchWinState();
 renderAll(); // okamzity prvni render: zadne prazdne sekce pred siti

@@ -17,19 +17,12 @@
   #stage { position:fixed; inset:0; cursor:pointer; overflow:hidden; background:#000; }
   #stage.empty #stageCenter { display:none; }
   #stageCenter { display:none !important; }
-  #stage .scan { position:absolute; inset:0; pointer-events:none; opacity:.5;
-    background:repeating-linear-gradient(0deg, transparent 0 3px, rgba(0,0,0,.18) 3px 4px); }
   #video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain;
     background:#000; display:none; }
-  .humbar { position:absolute; left:0; right:0; height:110px; z-index:1; pointer-events:none; display:none;
-    background:linear-gradient(to bottom, transparent, rgba(255,255,255,.13) 45%, rgba(255,255,255,.2) 50%, rgba(255,255,255,.13) 55%, transparent); }
   #video.on { display:block; }
-  #noise { position:absolute; inset:0; width:100%; height:100%; }
   #stageCenter { position:absolute; inset:0; display:flex; flex-direction:column;
     align-items:center; justify-content:center; gap:14px; pointer-events:none; }
   #stage.hasvideo #stageCenter { display:none; }
-  #stage.hasvideo .scan { display:none; }
-  body:not(.offline) #stage.hasvideo .humbar { display:none !important; }
   #bigIcon { width:120px; height:120px; border-radius:28px; display:flex; align-items:center;
     justify-content:center; font-size:44px; font-weight:800; letter-spacing:1px;
     box-shadow:0 12px 40px rgba(0,0,0,.5); }
@@ -53,6 +46,8 @@
   body.rightOpen #panelR { transform:none; }
   #winBtns { display:flex; gap:6px; justify-content:space-between; align-items:center; padding:10px 14px 0; }
   #winBtns .grp { display:flex; gap:6px; }
+  #streamRate { font-size:11px; font-weight:600; color:var(--dim); font-variant-numeric:tabular-nums; letter-spacing:.2px; white-space:nowrap; opacity:0; transition:opacity .2s; }
+  #streamRate.on { opacity:1; }
   .wbtn.help { width:26px; border-radius:50%; font-weight:800; }
   #srcToggle { font-size:15px; }
   /* Sbaleno: jen ikony vedle sebe (vybrany ma cerveny ramecek), zadna tlacitka = zadne omylne odhlaseni. */
@@ -309,8 +304,13 @@
   body.leftOpen #panelL { transform:none; }
   #epgHead { padding:14px 14px 4px; font-size:16px; font-weight:700; }
   #epg { flex:1; overflow-y:auto; padding:0 8px 12px; margin-right:10px; }
-  #epgFilterWrap { padding:6px 14px; display:flex; align-items:center; gap:6px; }
-  .epgInputBox { position:relative; flex:1; min-width:0; }
+  #epgFilterWrap { padding:6px 14px 4px; display:flex; align-items:flex-start; gap:6px; }
+  .epgInputCol { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+  .epgInputBox { position:relative; width:100%; }
+  #epgSearchProg { height:3px; width:100%; border-radius:99px; background:rgba(255,255,255,.08); overflow:hidden; opacity:0; transition:opacity .15s ease; }
+  #epgSearchProg.on { opacity:1; }
+  #epgSearchProgFill { height:100%; width:0%; background:linear-gradient(90deg,var(--acc2),#60a5fa); border-radius:99px; transition:width .08s linear; }
+  mark.epgHl { background:rgba(250,204,21,.28); color:#fef08a; border-radius:3px; padding:0 1px; margin:0 -1px; }
   #epgFilter { width:100%; background:#0b0e14; color:var(--text); border:1px solid var(--line);
     border-radius:10px; padding:8px 30px 8px 10px; font-size:13px; font-family:inherit; }
   #epgFilterClear { position:absolute; right:6px; top:50%; transform:translateY(-50%);
@@ -559,13 +559,13 @@
     background-size:4px 4px; background-position:0 0, 2px 2px; }
   #fltGrainOv { position:absolute; inset:0; pointer-events:none; z-index:4; opacity:0; mix-blend-mode:overlay;
     image-rendering:pixelated; background-repeat:repeat; }
+  #stage:not(.hasvideo) #fltVigOv,
+  #stage:not(.hasvideo) #fltNoiseOv,
+  #stage:not(.hasvideo) #fltGrainOv { display:none; }
 </style>
 </head>
 <body>
   <div id="stage">
-    <canvas id="noise"></canvas>
-    <div class="humbar" id="humbar1"></div>
-    <div class="humbar" id="humbar2"></div>
     <video id="video" playsinline></video>
     <canvas id="glCanvas"></canvas>
     <div id="stageCenter">
@@ -574,7 +574,6 @@
       <div id="stageProgram">–</div>
       <div id="stageProgWrap"><div id="stageProg"></div></div>
     </div>
-    <div class="scan"></div>
     <div id="fltVigOv"></div>
     <div id="fltNoiseOv"></div>
     <div id="fltGrainOv"></div>
@@ -637,7 +636,7 @@
   </div>
   <aside id="panelR">
     <div class="resizer" id="resR" title="Roztáhni myší"></div>
-    <div id="winBtns"><span class="grp"><span class="wbtn help" id="srcToggle" title="Sbalit/rozbalit zdroje a konfiguraci">▾</span><span class="wbtn help" id="btnHelp" title="Nápověda k ovládání">?</span></span><span class="grp"><span class="wbtn" id="wMin" title="Minimalizovat">—</span><span class="wbtn" id="wMax" title="Maximalizovat">▢</span><span class="wbtn danger" id="wClose" title="Zavřít">✕</span></span></div>
+    <div id="winBtns"><span class="grp"><span class="wbtn help" id="srcToggle" title="Sbalit/rozbalit zdroje a konfiguraci">▾</span><span class="wbtn help" id="btnHelp" title="Nápověda k ovládání">?</span></span><span id="streamRate" title="Rychlost stahování streamu"></span><span class="grp"><span class="wbtn" id="wMin" title="Minimalizovat">—</span><span class="wbtn" id="wMax" title="Maximalizovat">▢</span><span class="wbtn danger" id="wClose" title="Zavřít">✕</span></span></div>
     <div id="helpPop">
       <img class="helpBanner" src="assets/banner.jpg" alt="TV Client">
       <div class="helpGrid">
@@ -767,12 +766,16 @@
     <div class="resizer" id="resL" title="Roztáhni myší"></div>
     <div id="epgHead">Program</div>
     <div id="epgFilterWrap">
-      <div class="epgInputBox"><input id="epgFilter" placeholder="Hledat pořad…" autocomplete="off"><button id="epgFilterClear" title="Smazat text">×</button></div>
+      <div class="epgInputCol">
+        <div class="epgInputBox"><input id="epgFilter" placeholder="Hledat pořad…" autocomplete="off"><button id="epgFilterClear" title="Smazat text">×</button></div>
+        <div id="epgSearchProg"><div id="epgSearchProgFill"></div></div>
+      </div>
       <button id="btnEpgWatch" class="epgWatchBtn" title="Uložit vyhledávání a upozornit, až se pořad objeví v EPG" disabled>🔔</button>
     </div>
     <div id="epgFilterOpts">
       <label class="epgOpt"><input type="checkbox" id="epgOptOtherCh" checked><span id="epgOptOtherChLbl">Prohledávat ostatní kanály</span></label>
       <label class="epgOpt"><input type="checkbox" id="epgOptOtherSrc"><span id="epgOptOtherSrcLbl">Prohledávat i ostatní zdroje</span></label>
+      <label class="epgOpt"><input type="checkbox" id="epgOptDesc"><span id="epgOptDescLbl">Prohledávat i popisky pořadů</span></label>
     </div>
     <div id="epgWatchList"></div>
     <div id="epg"></div>
@@ -906,6 +909,7 @@
       <div style="display:flex;flex-direction:column;gap:8px;padding:4px 2px;">
         <label class="epgOpt"><input type="checkbox" id="wmOtherCh"><span id="wmOtherChLbl">Prohledávat ostatní kanály</span></label>
         <label class="epgOpt"><input type="checkbox" id="wmOtherSrc"><span id="wmOtherSrcLbl">Prohledávat i ostatní zdroje</span></label>
+        <label class="epgOpt"><input type="checkbox" id="wmInDesc"><span id="wmInDescLbl">Prohledávat i popisky pořadů</span></label>
       </div>
       <div class="mRow">
         <button class="btn" id="btnWmCancel">Zrušit</button>
