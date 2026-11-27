@@ -46,7 +46,7 @@
   body.rightOpen #panelR { transform:none; }
   #winBtns { display:flex; gap:6px; justify-content:space-between; align-items:center; padding:10px 14px 0; }
   #winBtns .grp { display:flex; gap:6px; }
-  #streamRate { font-size:11px; font-weight:600; color:var(--dim); font-variant-numeric:tabular-nums; letter-spacing:.2px; white-space:nowrap; opacity:0; transition:opacity .2s; }
+  #streamRate { font-size:11px; font-weight:600; color:var(--dim); font-variant-numeric:tabular-nums; letter-spacing:.2px; white-space:nowrap; min-width:0; overflow:hidden; text-overflow:ellipsis; text-align:center; opacity:0; transition:opacity .2s; }
   #streamRate.on { opacity:1; }
   .wbtn.help { width:26px; border-radius:50%; font-weight:800; }
   #srcToggle { font-size:15px; }
@@ -636,7 +636,7 @@
   </div>
   <aside id="panelR">
     <div class="resizer" id="resR" title="Roztáhni myší"></div>
-    <div id="winBtns"><span class="grp"><span class="wbtn help" id="srcToggle" title="Sbalit/rozbalit zdroje a konfiguraci">▾</span><span class="wbtn help" id="btnHelp" title="Nápověda k ovládání">?</span></span><span id="streamRate" title="Rychlost stahování streamu"></span><span class="grp"><span class="wbtn" id="wMin" title="Minimalizovat">—</span><span class="wbtn" id="wMax" title="Maximalizovat">▢</span><span class="wbtn danger" id="wClose" title="Zavřít">✕</span></span></div>
+    <div id="winBtns"><span class="grp"><span class="wbtn help" id="srcToggle" title="Sbalit/rozbalit zdroje a konfiguraci">▾</span><span class="wbtn help" id="btnHelp" title="Nápověda k ovládání">?</span></span><span id="streamRate" title="Rychlost stahování, rozlišení a typ streamu"></span><span class="grp"><span class="wbtn" id="wMin" title="Minimalizovat">—</span><span class="wbtn" id="wMax" title="Maximalizovat">▢</span><span class="wbtn danger" id="wClose" title="Zavřít">✕</span></span></div>
     <div id="helpPop">
       <img class="helpBanner" src="assets/banner.jpg" alt="TV Client">
       <div class="helpGrid">

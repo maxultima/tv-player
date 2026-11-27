@@ -57,11 +57,31 @@ function log(msg, level = 'INFO', tag = 'APP') {
     el.scrollTop = el.scrollHeight;
   } catch {}
 }
+let stickyToastMsg = null;
 function toast(msg, ms = 8000) {
   errToast.textContent = msg;
   errToast.style.display = 'block';
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => { errToast.style.display = 'none'; }, ms);
+  if (ms > 0) {
+    toast._t = setTimeout(() => {
+      if (stickyToastMsg) {
+        errToast.textContent = stickyToastMsg;
+        errToast.style.display = 'block';
+      } else {
+        errToast.style.display = 'none';
+      }
+    }, ms);
+  }
+}
+function setStickyToast(msg) {
+  stickyToastMsg = msg || null;
+  clearTimeout(toast._t);
+  if (stickyToastMsg) {
+    errToast.textContent = stickyToastMsg;
+    errToast.style.display = 'block';
+  } else {
+    errToast.style.display = 'none';
+  }
 }
 
 // ---------- trvala pamet (tauri store, fallback localStorage) ----------
@@ -1126,10 +1146,22 @@ const STREAM_RATE_WIN_MS = 5000;
 let streamRateSamples = []; // { ts, bytes }
 let streamRateStartMs = 0;
 let streamRateTimer = null;
+let streamTypeLabel = '';
 function fmtStreamRate(bps) {
   if (!Number.isFinite(bps) || bps <= 0) return '↓ 0 KB/s';
   if (bps >= 1024 * 1024) return '↓ ' + (bps / (1024 * 1024)).toFixed(2) + ' MB/s';
   return '↓ ' + Math.round(bps / 1024) + ' KB/s';
+}
+function getStreamResInfo() {
+  let w = video.videoWidth || 0, h = video.videoHeight || 0;
+  if (!h && hls && hls.levels && hls.currentLevel >= 0) {
+    const l = hls.levels[hls.currentLevel];
+    if (l) { w = l.width || 0; h = l.height || 0; }
+  }
+  if (!h) return { short: '', full: '' };
+  const short = h >= 2160 ? '4K' : (h + 'p');
+  const full = w > 0 ? (w + '×' + h) : short;
+  return { short, full };
 }
 function recordStreamBytes(bytes) {
   const b = Number(bytes);
@@ -1143,7 +1175,7 @@ function updateStreamRateUi(nowMs) {
   const el = document.getElementById('streamRate');
   if (!el) return;
   const active = video.classList.contains('on');
-  if (!active || !streamRateStartMs) {
+  if (!active || (!streamRateStartMs && !streamTypeLabel)) {
     el.textContent = '';
     el.classList.remove('on');
     return;
@@ -1152,11 +1184,19 @@ function updateStreamRateUi(nowMs) {
   const cutoff = now - STREAM_RATE_WIN_MS;
   while (streamRateSamples.length && streamRateSamples[0].ts < cutoff) streamRateSamples.shift();
   if (!document.body.classList.contains('rightOpen')) return;
-  let total = 0;
-  for (let i = 0; i < streamRateSamples.length; i++) total += streamRateSamples[i].bytes;
-  const spanSec = Math.max(1, Math.min(STREAM_RATE_WIN_MS / 1000, (now - streamRateStartMs) / 1000));
-  el.textContent = fmtStreamRate(total / spanSec);
-  el.classList.add('on');
+  let rateStr = '';
+  if (streamRateStartMs) {
+    let total = 0;
+    for (let i = 0; i < streamRateSamples.length; i++) total += streamRateSamples[i].bytes;
+    const spanSec = Math.max(1, Math.min(STREAM_RATE_WIN_MS / 1000, (now - streamRateStartMs) / 1000));
+    rateStr = fmtStreamRate(total / spanSec);
+  }
+  const res = getStreamResInfo();
+  const parts = [rateStr, res.short, streamTypeLabel].filter(Boolean);
+  el.textContent = parts.join(' · ');
+  const tipParts = [rateStr, res.full, streamTypeLabel].filter(Boolean);
+  el.title = tipParts.length ? tipParts.join(' · ') : 'Rychlost stahování, rozlišení a typ streamu';
+  el.classList.toggle('on', parts.length > 0);
 }
 function startStreamRateMeter() {
   streamRateSamples = [];
@@ -1172,10 +1212,13 @@ function startStreamRateMeter() {
 function resetStreamRateMeter() {
   streamRateSamples = [];
   streamRateStartMs = 0;
+  streamTypeLabel = '';
   if (streamRateTimer) { clearInterval(streamRateTimer); streamRateTimer = null; }
   const el = document.getElementById('streamRate');
-  if (el) { el.textContent = ''; el.classList.remove('on'); }
+  if (el) { el.textContent = ''; el.title = 'Rychlost stahování, rozlišení a typ streamu'; el.classList.remove('on'); }
 }
+video.addEventListener('resize', () => updateStreamRateUi());
+video.addEventListener('loadedmetadata', () => updateStreamRateUi());
 function attachDashRateMeter(player) {
   const evs = window.dashjs?.MediaPlayer?.events;
   if (!player || !evs || !evs.FRAGMENT_LOADING_COMPLETED) return;
@@ -1184,8 +1227,26 @@ function attachDashRateMeter(player) {
     if (b > 0) recordStreamBytes(b);
   });
 }
+let dashDiagTimer = null;
+function videoDiagSnap() {
+  let buf = '-';
+  try {
+    const b = video.buffered;
+    if (b && b.length) {
+      const parts = [];
+      for (let i = 0; i < b.length; i++) parts.push(b.start(i).toFixed(1) + '-' + b.end(i).toFixed(1));
+      buf = parts.join(',');
+    }
+  } catch {}
+  return 'ct=' + (video.currentTime || 0).toFixed(1)
+    + ' rs=' + video.readyState + ' ns=' + video.networkState
+    + ' vPaused=' + video.paused + ' buf=[' + buf + ']'
+    + (video.error ? ' vErr=' + video.error.code : '');
+}
 function stopStream() {
   resetStreamRateMeter();
+  setStickyToast(null);
+  if (dashDiagTimer) { clearInterval(dashDiagTimer); dashDiagTimer = null; }
   vtvSsmStop().catch(() => {});
   try { video.pause(); } catch {}
   video.removeAttribute('src');
@@ -1193,6 +1254,8 @@ function stopStream() {
   if (hls) { try { hls.destroy(); } catch {} hls = null; }
   if (dashPlayer) { try { dashPlayer.reset(); } catch {} dashPlayer = null; }
   video.classList.remove('on');
+  const glC = document.getElementById('glCanvas');
+  if (glC) glC.classList.remove('on');
   syncStageVideo();
 }
 // Stav prehravace na stage se musi synchronizovat V MOMENTE startu videa,
@@ -1222,10 +1285,11 @@ async function playStation(st, quiet = true, startPos = -1) {
       const evs = dashjs.MediaPlayer.events || {};
       const onDashErr = (kind) => (ev) => {
         const msg = (ev && (ev.error?.message || ev.error?.code || ev.event?.message || JSON.stringify(ev).slice(0, 180))) || kind;
-        log('Vodafone ' + kind + ': ' + msg, 'ERROR', 'VTV');
+        log('Vodafone ' + kind + ': ' + msg + ' (' + videoDiagSnap() + ')', 'ERROR', 'VTV');
         if (!quiet) toast('Vodafone TV: ' + msg, 10000);
       };
       if (evs.ERROR) dashPlayer.on(evs.ERROR, onDashErr('DASH ERROR'));
+      if (evs.PLAYBACK_ERROR) dashPlayer.on(evs.PLAYBACK_ERROR, onDashErr('PLAYBACK_ERROR'));
       if (evs.KEY_ERROR) dashPlayer.on(evs.KEY_ERROR, onDashErr('KEY_ERROR'));
       if (evs.KEY_SYSTEM_SELECTED) dashPlayer.on(evs.KEY_SYSTEM_SELECTED, (ev) => {
         if (ev?.error) onDashErr('KEY_SYSTEM_SELECTED')(ev);
@@ -1235,11 +1299,73 @@ async function playStation(st, quiet = true, startPos = -1) {
         if (ev?.error) onDashErr('LICENSE_COMPLETE')(ev);
         else log('Vodafone DRM licence přijata OK', 'INFO', 'VTV');
       });
+      if (evs.KEY_STATUSES_CHANGED) dashPlayer.on(evs.KEY_STATUSES_CHANGED, (ev) => {
+        try {
+          const statuses = [];
+          const collect = (ks) => {
+            if (!ks || typeof ks.forEach !== 'function') return;
+            ks.forEach((st, kid) => {
+              let hex = '';
+              try {
+                const u8 = kid instanceof ArrayBuffer ? new Uint8Array(kid) : (ArrayBuffer.isView(kid) ? new Uint8Array(kid.buffer, kid.byteOffset, kid.byteLength) : null);
+                if (u8) hex = Array.from(u8.slice(0, 4), (b) => b.toString(16).padStart(2, '0')).join('') + ':';
+              } catch {}
+              statuses.push(hex + String(st));
+            });
+          };
+          collect(ev?.data?.session?.keyStatuses || ev?.sessionToken?.session?.keyStatuses || ev?.data?.keyStatuses || ev?.keyStatuses);
+          if (!statuses.length && typeof dashPlayer?.getProtectionController === 'function') {
+            const pc = dashPlayer.getProtectionController();
+            const ksList = pc && typeof pc.getKeySessions === 'function' ? pc.getKeySessions() : [];
+            for (const s of (ksList || [])) collect(s?.session?.keyStatuses || s?.keyStatuses);
+          }
+          log('Vodafone DRM keyStatuses: ' + (statuses.length ? statuses.join(', ') : 'none') + ' (' + videoDiagSnap() + ')', 'INFO', 'VTV');
+          if (statuses.some((s) => s.endsWith('output-restricted'))) {
+            setStickyToast(t('drmOutputRestricted'));
+          } else if (statuses.some((s) => s.endsWith('usable'))) {
+            setStickyToast(null);
+          }
+        } catch {}
+      });
+      let lastWarnAt = 0, wasStalled = false;
+      const logDashWarn = (label) => {
+        const now = Date.now();
+        if (now - lastWarnAt < 10000) return;
+        lastWarnAt = now;
+        wasStalled = true;
+        log('Vodafone ' + label + ' (' + videoDiagSnap() + ')', 'WARN', 'VTV');
+      };
+      if (evs.PLAYBACK_WAITING) dashPlayer.on(evs.PLAYBACK_WAITING, () => logDashWarn('PLAYBACK_WAITING'));
+      if (evs.PLAYBACK_STALLED) dashPlayer.on(evs.PLAYBACK_STALLED, () => logDashWarn('PLAYBACK_STALLED'));
+      if (evs.BUFFER_EMPTY) dashPlayer.on(evs.BUFFER_EMPTY, (ev) => logDashWarn('BUFFER_EMPTY ' + (ev?.mediaType || '?')));
+      if (evs.BUFFER_LOADED) dashPlayer.on(evs.BUFFER_LOADED, (ev) => {
+        if (wasStalled) {
+          wasStalled = false;
+          log('Vodafone BUFFER_LOADED ' + (ev?.mediaType || '?') + ' (' + videoDiagSnap() + ')', 'INFO', 'VTV');
+        }
+      });
       let mpdLogged = false;
       if (evs.MANIFEST_LOADED) dashPlayer.on(evs.MANIFEST_LOADED, () => {
         if (!mpdLogged) { mpdLogged = true; log('Vodafone MPD manifest načten', 'INFO', 'VTV'); }
       });
-      if (evs.PLAYBACK_STARTED) dashPlayer.on(evs.PLAYBACK_STARTED, () => log('Vodafone přehrávání běží → ' + st.name, 'INFO', 'VTV'));
+      if (evs.PLAYBACK_STARTED) dashPlayer.on(evs.PLAYBACK_STARTED, () => log('Vodafone přehrávání běží → ' + st.name + ' (' + videoDiagSnap() + ')', 'INFO', 'VTV'));
+      let lastCt = -1, stuckLogged = false;
+      dashDiagTimer = setInterval(() => {
+        if (!dashPlayer || paused || document.hidden) { lastCt = -1; stuckLogged = false; return; }
+        const ct = video.currentTime || 0;
+        if (lastCt >= 0 && Math.abs(ct - lastCt) < 0.05) {
+          if (!stuckLogged) {
+            stuckLogged = true;
+            log('Vodafone obraz stojí >10s (' + videoDiagSnap() + ')', 'WARN', 'VTV');
+          }
+        } else {
+          if (stuckLogged) {
+            stuckLogged = false;
+            log('Vodafone obraz se znovu rozběhl (' + videoDiagSnap() + ')', 'INFO', 'VTV');
+          }
+          lastCt = ct;
+        }
+      }, 10000);
       if (startPos > 0 && evs.PLAYBACK_METADATA_LOADED) {
         let sought = false;
         dashPlayer.on(evs.PLAYBACK_METADATA_LOADED, () => {
@@ -1249,6 +1375,7 @@ async function playStation(st, quiet = true, startPos = -1) {
         });
       }
       dashPlayer.initialize(video, url, !paused);
+      streamTypeLabel = 'DASH DRM';
       attachDashRateMeter(dashPlayer);
       startStreamRateMeter();
       log('DASH+Widevine(SSM) → ' + st.name + ' (cert=' + (vtvCfg?.wvCertB64 ? vtvCfg.wvCertB64.length : 0) + ')', 'INFO', 'VTV');
@@ -1256,26 +1383,44 @@ async function playStation(st, quiet = true, startPos = -1) {
       dashPlayer = dashjs.MediaPlayer().create();
       dashPlayer.setProtectionData({ 'com.widevine.alpha': { serverURL: st.drm.licenceUrl } });
       dashPlayer.initialize(video, url, !paused);
+      streamTypeLabel = 'DASH DRM';
       attachDashRateMeter(dashPlayer);
       startStreamRateMeter();
       log('DASH+Widevine → ' + st.name);
     } else if (/\.mpd(\?|$)/i.test(url) && window.dashjs) {
       dashPlayer = dashjs.MediaPlayer().create();
       dashPlayer.initialize(video, url, !paused);
+      streamTypeLabel = 'DASH';
       attachDashRateMeter(dashPlayer);
       startStreamRateMeter();
       log('DASH → ' + st.name);
     } else if (window.Hls && Hls.isSupported() && /\.m3u8(\?|$)/i.test(url)) {
-      hls = new Hls({ enableWorker: true, startPosition: startPos });
+      hls = new Hls({
+        enableWorker: true,
+        startPosition: startPos,
+        useMediaCapabilities: false,
+        abrEwmaDefaultEstimate: 8_000_000,
+      });
       hls.loadSource(url);
       hls.attachMedia(video);
+      streamTypeLabel = 'HLS';
       startStreamRateMeter();
+      let lastHlsNonFatalAt = 0;
       hls.on(Hls.Events.FRAG_LOADED, (_e, data) => {
         const b = data?.frag?.stats?.loaded || data?.payload?.byteLength || 0;
         if (b > 0) recordStreamBytes(b);
       });
       hls.on(Hls.Events.ERROR, (_e, data) => {
-        if (!data?.fatal) return;
+        if (!data?.fatal) {
+          const now = Date.now();
+          if (now - lastHlsNonFatalAt >= 10000) {
+            lastHlsNonFatalAt = now;
+            const code = data?.response?.code ? ' http=' + data.response.code : '';
+            const lvl = data?.frag?.level != null ? ' lvl=' + data.frag.level : (data?.level != null ? ' lvl=' + data.level : '');
+            log('HLS warn: ' + (data?.type || '?') + '/' + (data?.details || '?') + code + lvl, 'WARN');
+          }
+          return;
+        }
         log('HLS chyba: ' + (data.details || 'fatal'));
         if (data.type === 'networkError') {
           checkNetOnline().then((ok) => { if (!ok) enterOffline('hls-net'); });
@@ -1283,12 +1428,26 @@ async function playStation(st, quiet = true, startPos = -1) {
         if (quiet) { video.classList.add('on'); syncStageVideo(); } // drzet stav pro dalsi pokus
         else { toast('Stream se nepodařilo přehrát (' + (data.details || 'chyba') + ').'); renderIdle(); }
       });
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      hls.on(Hls.Events.MANIFEST_PARSED, (_e, data) => {
+        try {
+          const lvls = (data?.levels || hls?.levels || []).map((l, i) => i + ':' + (l.height || '?') + 'p@' + Math.round((l.bitrate || 0) / 1000) + 'k');
+          if (lvls.length) log('HLS kvality (' + st.name + '): ' + lvls.join(', '));
+        } catch {}
         if (!paused) video.play().catch(() => { if (!quiet) { paused = true; renderStage(); } });
+      });
+      let lastHlsLvl = -1;
+      hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => {
+        const idx = data?.level;
+        if (idx === undefined || idx === lastHlsLvl) return;
+        lastHlsLvl = idx;
+        const l = hls?.levels?.[idx];
+        if (l) log('HLS kvalita → ' + (l.height || '?') + 'p @ ' + Math.round((l.bitrate || 0) / 1000) + ' kbps (' + st.name + ')');
+        updateStreamRateUi();
       });
       if (!paused) video.play().catch(() => {});
       log('HLS → ' + st.name);
     } else {
+      streamTypeLabel = /\.(mp4|m4v)(\?|$)/i.test(url) ? 'MP4' : (/\.(ts|mpg|mpeg)(\?|$)/i.test(url) ? 'MPEG' : 'Video');
       video.src = url;
       if (!paused) await video.play().catch(() => { if (!quiet) { paused = true; renderStage(); } });
       log('nativní video → ' + st.name);
@@ -1296,6 +1455,7 @@ async function playStation(st, quiet = true, startPos = -1) {
     everPlayed = true;
     video.classList.add('on');
     syncStageVideo();
+    updateStreamRateUi();
     persistSoon();
   } catch (e) {
     log('prehravani selhalo: ' + e);
@@ -4060,33 +4220,74 @@ async function oneplayChannels(token, profileId) {
   out.sort((a, b) => (a.order || 0) - (b.order || 0));
   return out;
 }
-// Oneplay EPG: epg.display s viewportem (-2 h .. +24 h), klice 'op:' + channelId (stejne id jako seznam).
+// Oneplay EPG: postupne po davkach — nejdriv dnesek (-2 h .. +24 h), pak budoucnost (+1..+7 dnu), pak minulost (-1..-7 dnu).
 async function oneplayLoadEpg(token) {
   const p = (n) => String(n).padStart(2, '0');
   const hhmm = (ms) => { const d = new Date(ms); return p(d.getHours()) + ':' + p(d.getMinutes()); };
   const iso = (ms) => { const d = new Date(ms); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()) + '.000Z'; };
-  const nowMs = Date.now();
-  const data = await opCall('epg.display', { payload: { criteria: { channelSetId: 'channel_list.1', viewport: { channelRange: { from: 0, to: 200 }, timeRange: { from: iso(nowMs - 7 * 24 * 360e4), to: iso(nowMs + 7 * 24 * 360e4) }, schema: 'EpgViewportAbsolute' } }, requestedOutput: { channelList: 'none', datePicker: false, channelSets: false } } }, token);
-  const sch = (data && data.schedule) || [];
-  let n = 0;
-  for (const c of sch) {
-    const rows = [];
-    for (const it of c.items || []) {
-      const s = new Date(it.startAt).getTime(), e2 = new Date(it.endAt).getTime();
-      if (!s || !e2) continue;
-      rows.push({
-        id: it.id !== undefined && it.id !== null ? String(it.id) : null,
-        t: String(it.startAtFormatted || '').slice(0, 5) || hhmm(s), e: hhmm(e2),
-        title: it.title || '?', desc: (it.description || '').slice(0, 500),
-        img: String(it.image || '').replace('{WIDTH}', '480').replace('{HEIGHT}', '320') || null,
-        s, e2, day: new Date(s).toDateString(),
-      });
+  const out = {};
+  const seen = {};
+  const fetchRange = (fromMs, toMs) => opCall('epg.display', {
+    payload: {
+      criteria: {
+        channelSetId: 'channel_list.1',
+        viewport: {
+          channelRange: { from: 0, to: 200 },
+          timeRange: { from: iso(fromMs), to: iso(toMs) },
+          schema: 'EpgViewportAbsolute',
+        },
+      },
+      requestedOutput: { channelList: 'none', datePicker: false, channelSets: false },
+    },
+  }, token);
+  const mergeData = (data) => {
+    const sch = (data && data.schedule) || [];
+    for (const c of sch) {
+      if (!c.channelId) continue;
+      if (!out[c.channelId]) { out[c.channelId] = []; seen[c.channelId] = new Set(); }
+      const bucket = out[c.channelId], sset = seen[c.channelId];
+      for (const it of c.items || []) {
+        const s = new Date(it.startAt).getTime(), e2 = new Date(it.endAt).getTime();
+        if (!s || !e2) continue;
+        const key = (it.id !== undefined && it.id !== null) ? String(it.id) : (s + '|' + (it.title || ''));
+        if (sset.has(key)) continue;
+        sset.add(key);
+        bucket.push({
+          id: it.id !== undefined && it.id !== null ? String(it.id) : null,
+          t: String(it.startAtFormatted || '').slice(0, 5) || hhmm(s), e: hhmm(e2),
+          title: it.title || '?', desc: (it.description || '').slice(0, 500),
+          img: String(it.image || '').replace('{WIDTH}', '480').replace('{HEIGHT}', '320') || null,
+          s, e2, day: new Date(s).toDateString(),
+        });
+      }
+      bucket.sort((a, b) => a.s - b.s);
     }
-    rows.sort((a, b) => a.s - b.s);
-    if (rows.length && c.channelId) { epgBySrc.oneplay[c.channelId] = rows; n++; }
-  }
-  if (n > 0) invalidateEpgSearch('oneplay');
-  return n;
+  };
+  const runBatch = async (ranges, label) => {
+    const res = await Promise.allSettled(ranges.map(([a, b]) => fetchRange(a, b)));
+    let ok = 0;
+    res.forEach((r, idx) => {
+      if (r.status === 'fulfilled') { mergeData(r.value); ok++; }
+      else log('Oneplay EPG ' + label + ' #' + (idx + 1) + ' selhalo: ' + (r.reason?.message || r.reason));
+    });
+    const count = Object.keys(out).length;
+    if (ok > 0 && count > 0) {
+      epgBySrc.oneplay = out;
+      invalidateEpgSearch('oneplay');
+      persistCache();
+      renderAll();
+    }
+    return ok;
+  };
+  const nowMs = Date.now();
+  const H = 3600e3, D = 24 * H;
+  // 1. Dnesek ihned (-2 h .. +24 h), 2. budoucnost (+1..+7 dnu), 3. minulost (-1..-7 dnu).
+  await runBatch([[nowMs - 2 * H, nowMs + D]], 'dnes');
+  if (Object.keys(out).length) scanEpgWatches('oneplay');
+  await runBatch([[nowMs + D, nowMs + 4 * D], [nowMs + 4 * D, nowMs + 7 * D]], 'budoucnost');
+  if (Object.keys(out).length) scanEpgWatches('oneplay');
+  await runBatch([[nowMs - 4 * D, nowMs - 2 * H], [nowMs - 7 * D, nowMs - 4 * D]], 'minulost');
+  return Object.keys(out).length;
 }
 let opEpgP = null;
 function opEpgFresh() {
@@ -4789,6 +4990,7 @@ async function vtvPrepareSsmForPlay(st) {
     sessionToken: null,
     heartbeat: 60,
     timer: null,
+    busy: null,
     reqBody: play.reqBody,
     assetId: play.assetId,
     assetType: play.assetType,
@@ -4799,27 +5001,39 @@ async function vtvPrepareSsmForPlay(st) {
   };
 }
 
+function vtvRunSerialized(ssm, fn) {
+  const prev = ssm.busy || Promise.resolve();
+  const next = prev.catch(() => {}).then(() => fn());
+  ssm.busy = next;
+  next.finally(() => { if (ssm.busy === next) ssm.busy = null; });
+  return next;
+}
+
 function vtvStartHeartbeat(ssm) {
   if (ssm.timer) { clearInterval(ssm.timer); ssm.timer = null; }
   const sec = Math.max(15, Number(ssm.heartbeat) || 60);
-  ssm.timer = setInterval(async () => {
+  ssm.timer = setInterval(() => {
     if (vtvSsm !== ssm || !ssm.sessionToken) { clearInterval(ssm.timer); ssm.timer = null; return; }
-    try {
-      const bm = vtvBookmarkOf(ssm, paused ? 'PAUSE' : 'HIT');
-      const r = await vtvSignedPost(vtvCfg.vtvApiGw + 'ccursession/v1/renewal', {
-        requests: [
-          { action: 'bookmark', params: {}, body: bm },
-          { action: 'session', params: { sessionToken: ssm.sessionToken }, body: {} },
-          { action: 'license', params: {}, body: {} },
-        ],
-      });
-      if (r && r.sessionToken) {
-        ssm.sessionToken = r.sessionToken;
-        vtvSavePendingSsm(r.sessionToken, vtvBookmarkOf(ssm, 'STOP'));
+    if (ssm.busy) return; // obnoveni licence prave bezi a samo resetuje timer
+    vtvRunSerialized(ssm, async () => {
+      if (vtvSsm !== ssm || !ssm.sessionToken) return;
+      try {
+        const bm = vtvBookmarkOf(ssm, paused ? 'PAUSE' : 'HIT');
+        const r = await vtvSignedPost(vtvCfg.vtvApiGw + 'ccursession/v1/renewal', {
+          requests: [
+            { action: 'bookmark', params: {}, body: bm },
+            { action: 'session', params: { sessionToken: ssm.sessionToken }, body: {} },
+            { action: 'license', params: {}, body: {} },
+          ],
+        });
+        if (r && r.sessionToken) {
+          ssm.sessionToken = r.sessionToken;
+          vtvSavePendingSsm(r.sessionToken, vtvBookmarkOf(ssm, 'STOP'));
+        }
+      } catch (e) {
+        log('Vodafone SSM heartbeat: ' + (e?.message || e), 'WARN', 'VTV');
       }
-    } catch (e) {
-      log('Vodafone SSM heartbeat: ' + (e?.message || e));
-    }
+    });
   }, sec * 1000);
 }
 
@@ -4873,17 +5087,26 @@ async function vtvHandleLicenseChallenge(challengeB64) {
     log('Vodafone SSM start OK (licLen=' + r.license.length + ', hb=' + ssm.heartbeat + 's)', 'INFO', 'VTV');
     return r.license;
   }
-  const bm = vtvBookmarkOf(ssm, paused ? 'PAUSE' : 'HIT');
-  const r = await vtvSignedPost(vtvCfg.vtvApiGw + 'ccursession/v1/renewal', {
-    requests: [
-      { action: 'bookmark', params: {}, body: bm },
-      { action: 'session', params: { sessionToken: ssm.sessionToken || '' }, body: {} },
-      { action: 'license', params: licParams, body: {} },
-    ],
+  return vtvRunSerialized(ssm, async () => {
+    if (vtvSsm !== ssm) throw new Error('Vodafone SSM relace již byla ukončena.');
+    const bm = vtvBookmarkOf(ssm, paused ? 'PAUSE' : 'HIT');
+    const r = await vtvSignedPost(vtvCfg.vtvApiGw + 'ccursession/v1/renewal', {
+      requests: [
+        { action: 'bookmark', params: {}, body: bm },
+        { action: 'session', params: { sessionToken: ssm.sessionToken || '' }, body: {} },
+        { action: 'license', params: licParams, body: {} },
+      ],
+    });
+    if (!r || !r.license) throw new Error('Vodafone SSM renewal nevrátil Widevine licenci.');
+    if (r.sessionToken) {
+      ssm.sessionToken = r.sessionToken;
+      vtvSavePendingSsm(r.sessionToken, vtvBookmarkOf(ssm, 'STOP'));
+    }
+    if (Number(r.heartBeat || r.heartbeat) > 0) ssm.heartbeat = Number(r.heartBeat || r.heartbeat);
+    vtvStartHeartbeat(ssm);
+    log('Vodafone SSM renewal OK (licLen=' + r.license.length + ', hb=' + ssm.heartbeat + 's)', 'INFO', 'VTV');
+    return r.license;
   });
-  if (!r || !r.license) throw new Error('Vodafone SSM renewal nevrátil Widevine licenci.');
-  if (r.sessionToken) ssm.sessionToken = r.sessionToken;
-  return r.license;
 }
 
 window.addEventListener('beforeunload', () => { vtvSsmStop().catch(() => {}); });

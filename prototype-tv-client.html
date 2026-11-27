@@ -172,7 +172,7 @@
   .resizer:hover, .resizer.drag { background:#e11d4888; }
   #winBtns { display:flex; gap:6px; justify-content:space-between; padding:10px 14px 0; align-items:center; }
   #winBtns .grp { display:flex; gap:6px; }
-  #streamRate { font-size:11px; font-weight:600; color:var(--dim); font-variant-numeric:tabular-nums; letter-spacing:.2px; white-space:nowrap; opacity:0; transition:opacity .2s; }
+  #streamRate { font-size:11px; font-weight:600; color:var(--dim); font-variant-numeric:tabular-nums; letter-spacing:.2px; white-space:nowrap; min-width:0; overflow:hidden; text-overflow:ellipsis; text-align:center; opacity:0; transition:opacity .2s; }
   #streamRate.on { opacity:1; }
   .wbtn { width:34px; height:26px; border:1px solid var(--line); background:var(--panel2); color:var(--dim);
     border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:12px; cursor:pointer; user-select:none; }
@@ -605,7 +605,7 @@
   <!-- RIGHT: sources / favs / stations -->
   <aside id="panelR">
     <div class="resizer" id="resR" title="roztáhni myšítkem"></div>
-    <div id="winBtns"><span class="grp"><span class="wbtn help" id="srcToggle" title="Sbalit/rozbalit zdroje a konfiguraci">▾</span><span class="wbtn help" id="btnHelp" title="Nápověda k ovládání">?</span></span><span id="streamRate" title="Rychlost stahování streamu"></span><span class="grp"><span class="wbtn" id="wMin" title="Minimalizovat">—</span><span class="wbtn" id="wMax" title="Maximalizovat">▢</span><span class="wbtn danger" id="wClose" title="Zavřít">✕</span></span></div>
+    <div id="winBtns"><span class="grp"><span class="wbtn help" id="srcToggle" title="Sbalit/rozbalit zdroje a konfiguraci">▾</span><span class="wbtn help" id="btnHelp" title="Nápověda k ovládání">?</span></span><span id="streamRate" title="Rychlost stahování, rozlišení a typ streamu"></span><span class="grp"><span class="wbtn" id="wMin" title="Minimalizovat">—</span><span class="wbtn" id="wMax" title="Maximalizovat">▢</span><span class="wbtn danger" id="wClose" title="Zavřít">✕</span></span></div>
     <div id="helpPop">
       <img class="helpBanner" src="docs/banner.jpg" alt="TV Client">
       <div class="helpGrid">
@@ -1433,10 +1433,14 @@ setInterval(() => {
     const playing = !paused && !document.body.classList.contains('offline') && DATA[curSrc] && DATA[curSrc][selIdx];
     if (playing) {
       const kbps = 680 + Math.round(Math.sin(Date.now() / 1700) * 140 + (Math.random() - 0.5) * 90);
-      sr.textContent = kbps >= 1024 ? ('↓ ' + (kbps / 1024).toFixed(2) + ' MB/s') : ('↓ ' + kbps + ' KB/s');
+      const rate = kbps >= 1024 ? ('↓ ' + (kbps / 1024).toFixed(2) + ' MB/s') : ('↓ ' + kbps + ' KB/s');
+      const kind = curSrc === 'vodafone' ? 'DASH DRM' : 'HLS';
+      sr.textContent = rate + ' · 1080p · ' + kind;
+      sr.title = rate + ' · 1920×1080 · ' + kind;
       sr.classList.add('on');
     } else {
       sr.textContent = '';
+      sr.title = 'Rychlost stahování, rozlišení a typ streamu';
       sr.classList.remove('on');
     }
   }
